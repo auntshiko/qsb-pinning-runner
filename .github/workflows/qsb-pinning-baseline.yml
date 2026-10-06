@@ -1,13 +1,18 @@
-name: QSB Pinning baseline
+name: QSB Pinning experiment
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - qsb-note.md
+      - .github/workflows/qsb-pinning-baseline.yml
 
 permissions:
   contents: read
 
 jobs:
-  pinning-baseline:
+  pinning-submit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -16,80 +21,83 @@ jobs:
       - name: Checkout runner
         uses: actions/checkout@v4
 
-      - name: Install Yukon CLI
+      - name: Install Yukon CLI and skill
         shell: bash
         run: |
           set -euo pipefail
           curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
           sh /tmp/yukon-install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Verify Yukon CLI and secret presence
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
           test -n "${YUKON_API_TOKEN:-}" || { echo "YUKON_API_TOKEN secret is missing"; exit 2; }
-          command -v yukon
-          yukon --help >/dev/null
-          echo "Yukon CLI installed and token supplied."
 
-      - name: Clone QSB Pinning benchmark
+      - name: Clone Yukon-linked QSB Pinning worktree
         shell: bash
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p "$GITHUB_WORKSPACE/work"
           cd "$GITHUB_WORKSPACE/work"
-          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/pinning 2>&1 | tee "$GITHUB_WORKSPACE/yukon-clone.log"
-          echo "Clone completed."
-          find . -maxdepth 3 -type d -print
+          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/pinning
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type d -path '*/candidates/pinning' -print -quit | sed 's#/candidates/pinning$##')"
+          test -n "$ROOT"
+          echo "QSB_ROOT=$ROOT" >> "$GITHUB_ENV"
 
-      - name: Locate benchmark and inspect untouched Pinning candidate
-        id: locate
+      - name: Confirm Yukon linkage
         shell: bash
+        working-directory: ${{ env.QSB_ROOT }}
         run: |
           set -euo pipefail
-          ROOT="$(find "$GITHUB_WORKSPACE/work" -type d -path '*/candidates/pinning' -print -quit | sed 's#/candidates/pinning$##')"
-          test -n "$ROOT" || { echo "Could not locate candidates/pinning after Yukon clone"; exit 3; }
-          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          cd "$ROOT"
-          echo "Benchmark root: $ROOT"
-          echo "Untouched candidates/pinning contents:"
-          find candidates/pinning -maxdepth 2 -type f -printf '%p\n' | sort
-          git status --short || true
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json >/tmp/yukon-submissions.json
+          echo "Yukon linkage/authentication confirmed."
 
-      - name: Run Yukon Pinning setup
+      - name: Apply isolated square-f8 experiment
         shell: bash
-        working-directory: ${{ steps.locate.outputs.root }}
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          FILE=candidates/pinning/GPUMath.h
+          grep -q '^#define QSB_RESTORE_SQR_F8 1$' "$FILE" || {
+            echo "Expected promoted default not found; refusing to mutate a changed baseline."
+            exit 4
+          }
+          sed -i 's/^#define QSB_RESTORE_SQR_F8 1$/#define QSB_RESTORE_SQR_F8 0/' "$FILE"
+          echo "Candidate diff:"
+          git diff --check -- candidates/pinning
+          git diff -- candidates/pinning
+          test "$(git status --short -- candidates/pinning | wc -l)" -eq 1
+          git status --short -- candidates/pinning | grep 'GPUMath.h'
+
+      - name: Setup Pinning candidate
+        shell: bash
+        working-directory: ${{ env.QSB_ROOT }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon setup --track pinning
 
-      - name: Run untouched Yukon Pinning baseline
+      - name: Submit isolated Pinning experiment to Yukon
         shell: bash
-        working-directory: ${{ steps.locate.outputs.root }}
+        working-directory: ${{ env.QSB_ROOT }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          yukon run --track pinning 2>&1 | tee "$GITHUB_WORKSPACE/pinning-baseline.log"
+          yukon submit --track pinning             --note-file "$GITHUB_WORKSPACE/qsb-note.md"             --model "GPT-5.6 Sol"             --harness "ChatGPT" 2>&1 | tee "$GITHUB_WORKSPACE/yukon-submit.log"
 
-      - name: Verify candidate remained untouched
-        if: always() && steps.locate.outputs.root != ''
+      - name: Query submission status
+        if: always()
         shell: bash
-        working-directory: ${{ steps.locate.outputs.root }}
+        working-directory: ${{ env.QSB_ROOT }}
         run: |
-          echo "Candidate diff after baseline:"
-          git status --short -- candidates/pinning || true
-          git diff -- candidates/pinning || true
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json 2>&1 | tee "$GITHUB_WORKSPACE/yukon-submissions-after.json" || true
 
-      - name: Upload diagnostic logs
+      - name: Upload Yukon receipt logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qsb-pinning-baseline-logs
+          name: qsb-pinning-submit-receipt
           path: |
-            yukon-clone.log
-            pinning-baseline.log
+            yukon-submit.log
+            yukon-submissions-after.json
           if-no-files-found: ignore
