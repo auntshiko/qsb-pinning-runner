@@ -1,0 +1,96 @@
+name: QSB Pinning baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinning-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+
+      - name: Install Yukon CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Yukon CLI and authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          test -n "${YUKON_API_TOKEN:-}" || { echo "YUKON_API_TOKEN secret is missing"; exit 2; }
+          command -v yukon
+          yukon --help >/dev/null
+          yukon submissions --json >/tmp/yukon-submissions.json
+          echo "Yukon authentication verified."
+
+      - name: Clone QSB Pinning benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/pinning 2>&1 | tee "$GITHUB_WORKSPACE/yukon-clone.log"
+          echo "Clone completed."
+          find . -maxdepth 2 -type d -print
+
+      - name: Locate benchmark and inspect untouched Pinning candidate
+        id: locate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type d -path '*/candidates/pinning' -print -quit | sed 's#/candidates/pinning$##')"
+          test -n "$ROOT" || { echo "Could not locate candidates/pinning after Yukon clone"; exit 3; }
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+          cd "$ROOT"
+          echo "Benchmark root: $ROOT"
+          echo "Untouched candidates/pinning contents:"
+          find candidates/pinning -maxdepth 2 -type f -printf '%p\n' | sort
+          git status --short || true
+
+      - name: Run Yukon Pinning setup
+        shell: bash
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon setup --track pinning
+
+      - name: Run untouched Yukon Pinning baseline
+        shell: bash
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon run --track pinning 2>&1 | tee "$GITHUB_WORKSPACE/pinning-baseline.log"
+
+      - name: Verify candidate remained untouched
+        if: always()
+        shell: bash
+        working-directory: ${{ steps.locate.outputs.root }}
+        run: |
+          echo "Candidate diff after baseline:"
+          git status --short -- candidates/pinning || true
+          git diff -- candidates/pinning || true
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsb-pinning-baseline-logs
+          path: |
+            yukon-clone.log
+            pinning-baseline.log
+          if-no-files-found: ignore
