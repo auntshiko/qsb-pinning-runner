@@ -24,7 +24,7 @@ jobs:
           sh /tmp/yukon-install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Verify Yukon CLI and authentication
+      - name: Verify Yukon CLI and secret presence
         shell: bash
         run: |
           set -euo pipefail
@@ -32,8 +32,7 @@ jobs:
           test -n "${YUKON_API_TOKEN:-}" || { echo "YUKON_API_TOKEN secret is missing"; exit 2; }
           command -v yukon
           yukon --help >/dev/null
-          yukon submissions --json >/tmp/yukon-submissions.json
-          echo "Yukon authentication verified."
+          echo "Yukon CLI installed and token supplied."
 
       - name: Clone QSB Pinning benchmark
         shell: bash
@@ -44,7 +43,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/work"
           yukon clone eigenlabs/quantum-safe-bitcoin-challenge/pinning 2>&1 | tee "$GITHUB_WORKSPACE/yukon-clone.log"
           echo "Clone completed."
-          find . -maxdepth 2 -type d -print
+          find . -maxdepth 3 -type d -print
 
       - name: Locate benchmark and inspect untouched Pinning candidate
         id: locate
@@ -77,7 +76,7 @@ jobs:
           yukon run --track pinning 2>&1 | tee "$GITHUB_WORKSPACE/pinning-baseline.log"
 
       - name: Verify candidate remained untouched
-        if: always()
+        if: always() && steps.locate.outputs.root != ''
         shell: bash
         working-directory: ${{ steps.locate.outputs.root }}
         run: |
