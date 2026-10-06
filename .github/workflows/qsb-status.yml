@@ -1,0 +1,35 @@
+name: QSB Pinning status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Clone linked benchmark and query status
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir work && cd work
+          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/pinning >/tmp/clone.log
+          cd quantum-safe-bitcoin-challenge
+          yukon submissions --json | tee "$GITHUB_WORKSPACE/yukon-status.json"
+      - name: Upload status
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsb-pinning-status
+          path: yukon-status.json
