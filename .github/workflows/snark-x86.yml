@@ -63,25 +63,25 @@ jobs:
             exit 1
           fi
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated NTT deep-prefetch removal experiment
+      - name: Apply isolated ring-switch wide inner-product rollback experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/ntt/additive_ntt_f128.rs
+          FILE=crates/flock-core/src/pcs/ring_switch.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
+          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
           s=p.read_text()
-          old='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_some() {'
-          new='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_none() {'
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_some());'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one NTT_DEEP_PF selector, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one IP_WIDE selector, found {s.count(old)}")
           p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: disable NTT deep-pass L1 prefetch hints" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: portable one-reduce ring-switch inner product instead of AVX-512 wide path" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
