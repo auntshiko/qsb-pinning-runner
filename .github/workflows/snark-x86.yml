@@ -42,9 +42,85 @@ jobs:
           set +e
           FILE=crates/flock-prover/src/recycle_alloc.rs
           [ "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b" ] || exit 11
-          grep -Fxq 'const RECYCLE_MIN: usize = 32 * 1024;' "$FILE" || exit 12
-          sed -i 's/^const RECYCLE_MIN: usize = 32 \* 1024;$/const RECYCLE_MIN: usize = 16 * 1024;/' "$FILE" || exit 13
-          grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE" || exit 14
+          grep -Eq '^[[:space:]]*const RECYCLE_MIN: usize = 32 \* 1024;[[:space:]]*
+          echo "Validated candidate: RECYCLE_MIN=16KiB" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          exit 0
+      - name: Setup x86
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon setup --track x86
+      - name: Submit to Yukon
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submit --track x86 --note-file "$GITHUB_WORKSPACE/snark-x86-note.md" --model "GPT-5.6 Sol" --harness "ChatGPT" 2>&1 | tee "$GITHUB_WORKSPACE/yukon-snark-submit.log"
+      - name: Query status
+        if: always()
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json 2>&1 | tee "$GITHUB_WORKSPACE/yukon-snark-after.json" || true
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-submit-receipt
+          path: |
+            yukon-help.txt
+            yukon-clone-help.txt
+            yukon-submissions-help.txt
+            yukon-recycle_alloc.rs
+            yukon-allocator-summary.txt
+            snark-baseline.txt
+            snark-candidate.diff
+            snark-before.json
+            yukon-snark-submit.log
+            yukon-snark-after.json
+          if-no-files-found: ignore
+ "$FILE" || exit 12
+          sed -Ei 's/^([[:space:]]*)const RECYCLE_MIN: usize = 32 \* 1024;[[:space:]]*$/\1const RECYCLE_MIN: usize = 16 * 1024;/' "$FILE" || exit 13
+          grep -Eq '^[[:space:]]*const RECYCLE_MIN: usize = 16 \* 1024;[[:space:]]*
+          echo "Validated candidate: RECYCLE_MIN=16KiB" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          exit 0
+      - name: Setup x86
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon setup --track x86
+      - name: Submit to Yukon
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submit --track x86 --note-file "$GITHUB_WORKSPACE/snark-x86-note.md" --model "GPT-5.6 Sol" --harness "ChatGPT" 2>&1 | tee "$GITHUB_WORKSPACE/yukon-snark-submit.log"
+      - name: Query status
+        if: always()
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json 2>&1 | tee "$GITHUB_WORKSPACE/yukon-snark-after.json" || true
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-submit-receipt
+          path: |
+            yukon-help.txt
+            yukon-clone-help.txt
+            yukon-submissions-help.txt
+            yukon-recycle_alloc.rs
+            yukon-allocator-summary.txt
+            snark-baseline.txt
+            snark-candidate.diff
+            snark-before.json
+            yukon-snark-submit.log
+            yukon-snark-after.json
+          if-no-files-found: ignore
+ "$FILE" || exit 14
           echo "Validated candidate: RECYCLE_MIN=16KiB" > "$GITHUB_WORKSPACE/snark-candidate.diff"
           exit 0
       - name: Setup x86
