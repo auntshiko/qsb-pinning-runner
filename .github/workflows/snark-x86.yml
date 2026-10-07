@@ -49,7 +49,7 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated NTT shaped-kernel rollback experiment
+      - name: Apply isolated NTT deep-prefetch removal experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -59,15 +59,15 @@ jobs:
           from pathlib import Path
           p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
           s=p.read_text()
-          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_none());'
-          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_some());'
+          old='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_some() {'
+          new='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_none() {'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one NTT_SHAPED selector, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one NTT_DEEP_PF selector, found {s.count(old)}")
           p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: generic NTT deep-row dispatch instead of shaped kernels" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: disable NTT deep-pass L1 prefetch hints" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
