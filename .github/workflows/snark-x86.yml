@@ -49,25 +49,25 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated cascade5 experiment
+      - name: Apply isolated Fold16 prefetch-distance experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/zerocheck.rs
+          FILE=crates/flock-core/src/field/f128_slice/x86_64.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("crates/flock-core/src/zerocheck.rs")
-          s = p.read_text()
-          old = 'std::env::var_os("FLOCK_NO_ZC_CASCADE5").is_some()'
-          new = 'std::env::var_os("FLOCK_NO_ZC_CASCADE5").is_none()'
+          p=Path("crates/flock-core/src/field/f128_slice/x86_64.rs")
+          s=p.read_text()
+          old="const FOLD16_PF_AHEAD: usize = 512;"
+          new="const FOLD16_PF_AHEAD: usize = 1024;"
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one cascade5 selector, found {s.count(old)}")
-          p.write_text(s.replace(old, new, 1))
+              raise SystemExit(f"expected exactly one Fold16 prefetch constant, found {s.count(old)}")
+          p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: disable cascade5 by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: Fold16 prefetch distance 512 -> 1024 elements" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
