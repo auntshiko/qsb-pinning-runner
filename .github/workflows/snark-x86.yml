@@ -85,7 +85,11 @@ jobs:
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/seed-diagnostic -p flock-benchmark-harness
           HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
-          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          echo "=== BUILD NORMALIZED BASELINE target-cpu=x86-64-v3 ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v3" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/ab-baseline -p flock-benchmark-worker
+          BASE="$PWD/target/ab-baseline/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
           seeds="0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615"
           threads=1
