@@ -26,7 +26,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p "$GITHUB_WORKSPACE/work"; cd "$GITHUB_WORKSPACE/work"
-          yukon clone layr-labs/flock-challenge-multi/x86
+          yukon clone flock/x86
           ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
           test -n "$ROOT"
           echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
