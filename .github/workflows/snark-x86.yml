@@ -47,7 +47,21 @@ jobs:
           export BLAKE3_WARMUP_RUNS=2
           export BLAKE3_RUNS=7
           ./setup.sh
-          ./benchmark.sh
+          rm -f score.json
+          baseline_ok=0
+          for attempt in 1 2 3; do
+            echo "Baseline verification attempt $attempt/3"
+            if ./benchmark.sh; then
+              baseline_ok=1
+              break
+            fi
+            echo "Baseline attempt $attempt failed; retrying unchanged baseline."
+            rm -f score.json
+          done
+          if [ "$baseline_ok" -ne 1 ]; then
+            echo "Unchanged baseline failed verification three times; candidate not evaluated."
+            exit 1
+          fi
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
       - name: Apply isolated NTT deep-prefetch removal experiment
         working-directory: ${{ env.SNARK_ROOT }}
