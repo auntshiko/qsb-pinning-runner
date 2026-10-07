@@ -1,6 +1,8 @@
 name: SNARK.fast x86 allocator experiment
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
   push:
     branches: [main]
     paths: [snark-x86-note.md, .github/workflows/snark-x86.yml]
@@ -37,6 +39,10 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json > "$GITHUB_WORKSPACE/snark-before.json"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            cat "$GITHUB_WORKSPACE/snark-before.json"
+            exit 0
+          fi
       - name: Apply isolated allocator threshold experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
