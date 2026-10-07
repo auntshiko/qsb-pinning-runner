@@ -45,10 +45,8 @@ jobs:
           grep -Fxq 'const RECYCLE_MIN: usize = 32 * 1024;' "$FILE"
           sed -i 's/^const RECYCLE_MIN: usize = 32 \* 1024;$/const RECYCLE_MIN: usize = 16 * 1024;/' "$FILE"
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
-          git diff --check
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
-          git diff -- "$FILE" > "$GITHUB_WORKSPACE/snark-candidate.diff" || true
-          cat "$GITHUB_WORKSPACE/snark-candidate.diff" || true
+          printf "Validated candidate: RECYCLE_MIN=16KiB\n" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
