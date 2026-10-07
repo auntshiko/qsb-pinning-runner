@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
-      - name: Deterministic-seed proof diagnostic
+      - name: Deterministic paired A/B gate
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -76,39 +76,74 @@ jobs:
               File::open("/dev/urandom")?.read_exact(&mut bytes)?;
               Ok(u64::from_le_bytes(bytes))
           }'''
-          if old not in s:
-              raise SystemExit("fresh_seed source did not match expected baseline")
+          if old not in s: raise SystemExit("fresh_seed source mismatch")
           p.write_text(s.replace(old,new,1))
           PY
           . "${CARGO_HOME:-$HOME/.cargo}/env"
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
-            --manifest-path Cargo.toml --target-dir target/seed-diagnostic \
-            -p flock-benchmark-harness
+            --manifest-path Cargo.toml --target-dir target/seed-diagnostic -p flock-benchmark-harness
           HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
-          WORKER="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
-          test -x "$HARNESS"
-          test -x "$WORKER"
-          echo "HARNESS=$HARNESS" | tee "$GITHUB_WORKSPACE/snark-seed-paths.log"
-          echo "WORKER=$WORKER" | tee -a "$GITHUB_WORKSPACE/snark-seed-paths.log"
-          ls -l "$HARNESS" "$WORKER" | tee -a "$GITHUB_WORKSPACE/snark-seed-paths.log"
-          mkdir -p benchmark-results/seed-diagnostic/scratch
-          : > "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          test -x "$HARNESS"; test -x "$BASE"
+
+          # Candidate 1: disable Fold8 A-state allocation reuse, allowing W/A construction in parallel.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
+          s=p.read_text()
+          old='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_none()'
+          new='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_some()'
+          if old not in s: raise SystemExit("Fold8 reuse switch source mismatch")
+          p.write_text(s.replace(old,new,1))
+          PY
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
+          CAND="$PWD/target/ab-candidate/challenge/flock-benchmark-worker"
+          test -x "$CAND"
+
+          mkdir -p benchmark-results/ab/scratch
+          : > "$GITHUB_WORKSPACE/snark-ab.log"
+          : > "$GITHUB_WORKSPACE/snark-ab.tsv"
           threads="$(nproc)"
           for seed in 0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615; do
-            echo "=== seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
-            rm -f score.json
-            set +e
-            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$WORKER" \
-              "$PWD/benchmark-results/seed-diagnostic/scratch" "$PWD/score.json" \
-              "$PWD/benchmark-results/seed-diagnostic/summary.md" 18 "$threads" 0 1 \
-              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
-            rc=${PIPESTATUS[0]}
-            set -e
-            echo "seed=$seed rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+            for variant in baseline candidate; do
+              if [ "$variant" = baseline ]; then worker="$BASE"; else worker="$CAND"; fi
+              rm -f score.json
+              echo "=== $variant seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+              FLOCK_DIAG_SEED="$seed" "$HARNESS" "$worker" \
+                "$PWD/benchmark-results/ab/scratch" "$PWD/score.json" \
+                "$PWD/benchmark-results/ab/summary.md" 18 "$threads" 0 1 \
+                2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+              python3 - "$variant" "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
+          import json,sys
+          variant,seed,out=sys.argv[1:]
+          d=json.load(open("score.json"))
+          score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0:
+              raise SystemExit(f"{variant} seed {seed}: invalid score")
+          with open(out,"a") as f: f.write(f"{variant}\t{seed}\t{score}\n")
+          PY
+            done
           done
+          python3 - "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY' | tee "$GITHUB_WORKSPACE/snark-local-gain.txt"
+          import sys,statistics
+          rows=[x.strip().split("\t") for x in open(sys.argv[1]) if x.strip()]
+          d={}
+          for variant,seed,score in rows: d.setdefault(seed,{})[variant]=float(score)
+          gains=[]
+          for seed in d:
+              b=d[seed]["baseline"]; c=d[seed]["candidate"]
+              g=(c/b-1)*100
+              gains.append(g)
+              print(f"seed={seed} baseline={b:.3f} candidate={c:.3f} gain={g:+.3f}%")
+          med=statistics.median(gains)
+          wins=sum(g>0 for g in gains)
+          print(f"paired_median_gain={med:+.3f}% wins={wins}/{len(gains)}")
+          print("GATE_PASS" if med >= 2.0 and wins >= 5 else "GATE_REJECT")
+          PY
           cp /tmp/flock-harness-main.rs benchmark-tools/harness/src/main.rs
-          exit 0
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -142,8 +177,8 @@ jobs:
             snark-four-thread-score.json
             snark-single-thread.log
             snark-four-thread.log
-            snark-seed-matrix.log
-            snark-seed-paths.log
+            snark-ab.log
+            snark-ab.tsv
             snark-runner-env.txt
             yukon-snark-after.json
           if-no-files-found: ignore
