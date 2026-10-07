@@ -54,26 +54,57 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
-      - name: Reproduce known-good promoted baseline
+      - name: Deterministic-seed proof diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          unset RAYON_NUM_THREADS || true
-          export BLAKE3_WARMUP_RUNS=2
-          export BLAKE3_RUNS=7
-          rm -f score.json
-          echo "=== known-good control: 2 warm-ups + 7 measured runs ==="
-          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-known-good-control.log"
-          test -s score.json
-          cp score.json "$GITHUB_WORKSPACE/snark-known-good-control-score.json"
+          cp benchmark-tools/harness/src/main.rs /tmp/flock-harness-main.rs
           python3 - <<'PY'
-          import json
-          d=json.load(open("score.json"))
-          s=d.get("score")
-          if not isinstance(s,(int,float)) or s <= 0:
-              raise SystemExit("known-good control produced no positive score")
-          print(f"Known-good baseline score: {s}")
+          from pathlib import Path
+          p=Path("benchmark-tools/harness/src/main.rs")
+          s=p.read_text()
+          old='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              if let Ok(value) = std::env::var("FLOCK_DIAG_SEED") {
+                  return Ok(value.parse()?);
+              }
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          if old not in s:
+              raise SystemExit("fresh_seed source did not match expected baseline")
+          p.write_text(s.replace(old,new,1))
           PY
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/seed-diagnostic \
+            -p flock-benchmark-harness
+          HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
+          WORKER="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          mkdir -p benchmark-results/seed-diagnostic/scratch
+          : > "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+          threads="$(nproc)"
+          for seed in 0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615; do
+            echo "=== seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+            rm -f score.json
+            set +e
+            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$WORKER" \
+              "$PWD/benchmark-results/seed-diagnostic/scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/seed-diagnostic/summary.md" 18 "$threads" 0 1 \
+              "$PWD/benchmark-results/seed-diagnostic/scratch" \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "seed=$seed rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
+          done
+          cp /tmp/flock-harness-main.rs benchmark-tools/harness/src/main.rs
+          exit 0
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -107,8 +138,7 @@ jobs:
             snark-four-thread-score.json
             snark-single-thread.log
             snark-four-thread.log
-            snark-known-good-control.log
-            snark-known-good-control-score.json
+            snark-seed-matrix.log
             snark-runner-env.txt
             yukon-snark-after.json
           if-no-files-found: ignore
