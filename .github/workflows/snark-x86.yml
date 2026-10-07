@@ -46,47 +46,26 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
-      - name: Baseline deterministic single-thread diagnostic
+      - name: Reproduce known-good promoted baseline
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          export RAYON_NUM_THREADS=1
-          export BLAKE3_WARMUP_RUNS=0
-          export BLAKE3_RUNS=1
+          unset RAYON_NUM_THREADS || true
+          export BLAKE3_WARMUP_RUNS=2
+          export BLAKE3_RUNS=7
           rm -f score.json
-          echo "=== deterministic baseline: RAYON_NUM_THREADS=1 ==="
-          set +e
-          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-single-thread.log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          if [ "$rc" -eq 0 ] && [ -s score.json ]; then
-            cp score.json "$GITHUB_WORKSPACE/snark-single-thread-score.json"
-            echo "single-thread verifier: PASS"
-          else
-            echo "single-thread verifier: FAIL (rc=$rc)"
-          fi
-          exit 0
-
-      - name: Baseline four-thread diagnostic
-        working-directory: ${{ env.SNARK_ROOT }}
-        run: |
-          set -euo pipefail
-          export RAYON_NUM_THREADS=4
-          export BLAKE3_WARMUP_RUNS=0
-          export BLAKE3_RUNS=1
-          rm -f score.json
-          echo "=== baseline control: RAYON_NUM_THREADS=4 ==="
-          set +e
-          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-four-thread.log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          if [ "$rc" -eq 0 ] && [ -s score.json ]; then
-            cp score.json "$GITHUB_WORKSPACE/snark-four-thread-score.json"
-            echo "four-thread verifier: PASS"
-          else
-            echo "four-thread verifier: FAIL (rc=$rc)"
-          fi
-          exit 0
+          echo "=== known-good control: 2 warm-ups + 7 measured runs ==="
+          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-known-good-control.log"
+          test -s score.json
+          cp score.json "$GITHUB_WORKSPACE/snark-known-good-control-score.json"
+          python3 - <<'PY'
+          import json
+          d=json.load(open("score.json"))
+          s=d.get("score")
+          if not isinstance(s,(int,float)) or s <= 0:
+              raise SystemExit("known-good control produced no positive score")
+          print(f"Known-good baseline score: {s}")
+          PY
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
