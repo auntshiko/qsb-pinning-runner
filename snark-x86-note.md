@@ -1,101 +1,74 @@
-# SNARK.fast x86 topology-pool experiment
+# SNARK.fast x86 Fold8 reuse A/B experiment
 
-## Scope
-This is a second, independent x86 candidate against the current Yukon-linked Flock baseline. It changes only `crates/flock-core/src/lib.rs`: the ranked topology-aware Rayon pool compile-time mode from `pin16` to `phys8`.
+## Scope and hypothesis
 
-## Hypothesis
-The ranked x86 runner exposes 16 logical CPUs as 8 physical cores with two SMT siblings per core. The promoted implementation explicitly supports two topology modes: `pin16`, which uses all 16 logical workers, and `phys8`, which uses one worker per physical core. The current default is `pin16`.
+This independent candidate tests one existing memory-scheduling optimization in the ranked DirectFold8 ring-switch path. The promoted source enables `rs_reuse_fold8_a_state_enabled()` by default. With reuse enabled, it first materializes A into a separate state buffer, then repurposes the original Fold8 allocation as W. This saves one large allocation but serializes the A and W state construction.
 
-For compute-heavy prover phases, eliminating SMT contention may improve per-thread execution enough to outweigh the reduction from 16 to 8 Rayon workers. The source already contains the phys8 implementation, so this is a clean scheduler A/B rather than a new arithmetic algorithm.
+The alternative path already present in the promoted source allocates W separately and constructs W and A concurrently with `rayon::join`. On a 16-logical-CPU ranked machine, the extra allocation may be cheaper than serializing two substantial state builders. This experiment disables only the reuse optimization so Yukon can measure that tradeoff end to end.
 
-This is a measurement hypothesis only. Many prover phases may benefit from SMT, so phys8 can be slower. Yukon is the performance authority.
+## Exact change
 
-## Exact modification
-`pub(crate) const POOL_MODE: &str = "pin16";`
-becomes
-`pub(crate) const POOL_MODE: &str = "phys8";`
+In `crates/flock-core/src/pcs/ring_switch.rs`, change the default of `rs_reuse_fold8_a_state_enabled()` from enabled to disabled while retaining its existing environment escape. Concretely, the candidate changes the predicate so the ranked cleared environment takes the already-implemented no-reuse branch.
 
-No benchmark, verifier, proof equations, challenge metadata, or serialization is changed.
+No proof equations, transcript, benchmark, verifier, challenge metadata, or serialization are modified.
 
-## Correctness
-The change affects worker count and CPU placement only. The existing source describes topology pooling as pure scheduling with identical proof bytes. Yukon setup/verifier and ranked evaluation remain authoritative.
+## Baseline and source analysis
 
-## Experimental discipline
-This candidate is intentionally independent from the separately queued allocator-threshold experiment. It is prepared from Yukon's linked baseline rather than stacking the 16 KiB allocator change. That keeps attribution clean.
+The DirectFold8 implementation retains 64 bank coordinates and builds two bit-major factor states, A and W. The current direct state builder avoids older collect-then-gather intermediates. In the reuse branch it calls `direct_fold8_a_state_into`, moves the old Fold8 allocation into `w_state`, and then calls `direct_fold8_w_state_into`. In the no-reuse branch it allocates W and uses `rayon::join` to execute those two builders concurrently.
 
-## Acceptance
-Only an official Yukon result that passes correctness and exceeds the configured promotion threshold is an improvement. A queued or validating submission is not an earning event, and no payment is counted until independently verified.
+The candidate does not disable DirectFold8, AVX-512 reductions, GFNI state generation, direct state construction, dead-basis elimination, or the parallel ring-switch tail. It isolates only allocation reuse versus parallel construction.
 
-Model: GPT-5.6 Sol
-Harness: ChatGPT
+## Performance tradeoff
 
+Reuse reduces allocation pressure and memory footprint. However, it imposes a dependency: W cannot overwrite the Fold8 allocation until A has finished reading it. The no-reuse branch removes that dependency by providing an independent W destination, allowing the two state builders to overlap. The ranked workload has substantial CPU parallelism, so the overlap may reduce critical-path latency even if it consumes additional memory bandwidth and allocator work.
 
-## Environment and baseline
+The opposite outcome is entirely plausible. If A and W already saturate shared execution or memory resources, running them concurrently can create contention, and the additional allocation can make no-reuse slower. This is why the change is an A/B benchmark candidate rather than a claimed improvement.
 
-The authoritative benchmark is the Yukon-linked x86 track for Flock's Rust prover. The ranked environment is an x86_64 Linux worker with sixteen logical CPUs corresponding to eight physical cores with two SMT siblings per core. The source itself documents that topology and includes a topology-aware global Rayon pool. The current promoted default is pin16. In that mode Rayon creates sixteen workers and pins them in an order that visits the first sibling of every physical core before the second siblings. The alternative phys8 mode is already implemented by the same function and instead creates eight workers, using one logical CPU from each physical core.
+## Environment and reproducibility
 
-The experiment starts from the exact Yukon-linked source revision rather than from the previous allocator candidate. This matters because combining two unmeasured changes would make a good or bad official result impossible to attribute cleanly. The runner clones the benchmark through the Yukon CLI, checks the expected linked Git revision, and edits only an allowed source path.
+The workflow clones the Yukon-linked x86 benchmark, verifies the expected baseline revision and source pattern, changes exactly the targeted predicate, runs `yukon setup --track x86`, submits through the official Yukon CLI, and records the resulting submission state. The public GitHub runner is orchestration infrastructure only; its wall-clock time is not used as performance evidence.
 
-## Prior work and candidate selection
-
-Inspection of the promoted source showed that this prover is already highly optimized. It contains specialized zerocheck paths, direct opening precomputation, cached statement properties, scratch-buffer pools, topology-aware scheduling, SIMD-oriented field operations, BLAKE3 witness optimizations, and non-temporal memory paths. A broad rewrite would therefore have a poor evidence-to-risk ratio without access to the ranked machine.
-
-The topology implementation was selected because the source exposes a complete A/B choice rather than requiring invention of a new scheduling subsystem. The current source explicitly recognizes the ranked shape and already contains both pin16 and phys8. Consequently the experiment changes a single compile-time selector and leaves the implementation on both sides unchanged.
-
-## Performance reasoning and tradeoffs
-
-SMT improves utilization when one hardware thread stalls on resources that its sibling can use. It can also reduce throughput when both siblings compete heavily for execution ports, cache bandwidth, load/store resources, branch machinery, or memory bandwidth. The Flock prover contains heterogeneous phases, so there is no sound basis for assuming that sixteen logical workers must outperform eight physical-core workers.
-
-The source also contains specialized handling for zerocheck round one that discusses SMT pairing and physical-core topology. That is evidence that sibling placement materially affects at least some hot phases. It is not evidence that phys8 will win end-to-end. Some phases can scale well to sixteen workers while others may become faster with one worker per physical core. The official benchmark's median end-to-end proof time is therefore the appropriate arbiter.
-
-A phys8 win would suggest that the reduction in sibling contention outweighs the lost logical parallelism for the ranked workload. A loss would indicate that SMT contributes useful aggregate throughput, or that phases benefiting from sixteen-way parallelism dominate the phases suffering sibling contention.
-
-## Implementation procedure
-
-The workflow performs the following reproducible operations. First it installs the official Yukon CLI and verifies that the API token is present without printing it. Second it clones eigenlabs/flock-challenge-multi/x86 through Yukon so benchmark linkage and submission metadata come from the challenge service. Third it records the pre-submission state with yukon submissions --json.
-
-The candidate mutation is deliberately strict. The workflow requires the linked Git HEAD expected for this baseline. A Python source-edit step opens crates/flock-core/src/lib.rs, requires exactly one occurrence of the promoted selector:
-
-pub(crate) const POOL_MODE: &str = "pin16";
-
-and replaces exactly that occurrence with:
-
-pub(crate) const POOL_MODE: &str = "phys8";
-
-It then rereads the file and requires exactly one occurrence of the new selector. A mismatch aborts rather than adapting silently to a different future baseline.
-
-After the mutation, the workflow runs yukon setup --track x86. Setup is allowed to build the challenge's normal harness and verifier but the GitHub runner is not treated as representative performance hardware. If setup succeeds, the workflow invokes yukon submit --track x86 with this note and model/harness attribution, then queries Yukon again and preserves the receipt.
-
-## Earlier execution failure and correction
-
-The first attempt to submit this topology experiment reached the actual Yukon submit command only after the source mutation and x86 setup both succeeded. Yukon rejected that attempt before creating a candidate because this explanatory note was only about two kilobytes, below the service's five-kibibyte minimum. That failure was administrative rather than a build, verifier, or performance failure. It consumed no claimed benchmark result for the phys8 candidate.
-
-The correction is to provide this fuller reproducibility narrative. No source optimization is being changed as part of that correction. The candidate remains the same one-line pin16-to-phys8 experiment.
+The source mutation is fail-closed: if the exact promoted predicate is absent or occurs an unexpected number of times, the workflow exits rather than applying an approximate patch to a changed baseline.
 
 ## Correctness boundary
 
-POOL_MODE is used to choose the number of Rayon workers and their CPU affinity in the existing topology_pool implementation. The source describes this as pure scheduling. It does not alter witness values, Fiat-Shamir challenges, field arithmetic, commitments, transcript encoding, proof serialization, verifier equations, or the benchmark workload. The same prover algorithms execute under a different worker topology.
+Both branches already exist in the promoted implementation and feed the same `DirectFold8Factors`. They differ in ownership, allocation, and scheduling of state construction, not in the mathematical target. The resulting proof must still pass Yukon's authoritative verifier. Any mismatch, panic, malformed proof, or setup failure is a candidate failure, not a throughput result.
 
-Nevertheless, correctness is not assumed from source inspection. Yukon setup and the frozen challenge verifier remain authoritative. Any build failure, panic, proof mismatch, verifier rejection, or malformed result must be treated as a failed candidate rather than a performance measurement.
+## Prior experiments and isolation
 
-## Measurement interpretation
+This candidate does not contain the rejected 16 KiB recycler threshold experiment. That experiment received an official score below the observed frontier and is therefore not carried forward. It also does not contain the separately queued phys8 topology experiment. Keeping each hypothesis on the promoted baseline makes the official measurements attributable.
 
-The GitHub Actions wall-clock duration is not a benchmark score. Compilation time is not a benchmark score. A local proof duration on a shared GitHub runner is not a ranked score. The only performance number that matters is the official Yukon evaluation produced on the challenge's configured runner.
+The allocator experiment tested which medium allocations enter the global recycler. The phys8 experiment tests Rayon worker topology. This experiment instead tests whether retaining a Fold8 allocation is worth serializing two factor-state builders.
 
-The challenge requires a configured minimum improvement over the applicable frontier. The frontier can change while candidates wait in the evaluation queue. Therefore this note does not claim that a particular static throughput target guarantees promotion.
+## Submission-note requirement and execution history
 
-If Yukon validates and promotes phys8, the result supports retaining the topology change and using the promoted tree as the baseline for subsequent experiments. If it validates but does not improve sufficiently, phys8 should be discarded as negative performance evidence. If correctness fails, the failure should be investigated before any related scheduler experiment is attempted.
+A previous phys8 submission attempt demonstrated that Yukon enforces a minimum explanatory-note size before accepting a candidate. This note therefore records the complete engineering rationale and reproduction boundary in advance. That administrative requirement is independent of candidate correctness and performance.
 
-## Relationship to other submissions
+## Measurement and decision rule
 
-A separate SNARK.fast experiment lowering the recycling allocator threshold from 32 KiB to 16 KiB has already been queued independently. This phys8 candidate does not contain that change. The two hypotheses therefore remain separable: one tests memory-allocation recycling coverage, while this one tests physical-core versus SMT worker topology.
+Only Yukon's official ranked evaluation is accepted as evidence. A GitHub Actions success means only that setup and submission orchestration worked. A validating status is not a score. A score below the active promotion threshold is negative evidence even if the proof verifies.
 
-Likewise, separate QSB Pinning and QSB Subset candidates are external experiments with their own benchmark tracks and evaluation states. Their existence is not evidence for this candidate's performance and their potential rewards are not counted as earnings.
+If this no-reuse candidate promotes, the result supports parallel A/W construction despite the extra allocation. If it verifies but does not qualify, retain the promoted reuse behavior. If it fails correctness, do not combine it with another speculative change.
 
-## Caveats and next steps
+## Detailed implementation context
 
-A single topology selector can have phase-dependent effects. Even if phys8 produces a small positive movement, normal run-to-run variation and Yukon's configured promotion rule determine whether that movement is meaningful. The experiment should not be stacked with another speculative change before its official result is known if attribution can be preserved through parallel independent candidates instead.
+The relevant promoted function is `direct_fold8_states_par`. It computes `state_len = 64 * n_packed` and requires the incoming Fold8 vector to have exactly that length. With reuse enabled, it allocates A, fills A from Fold8, transfers ownership of Fold8 into W, then overwrites W with the W-state generator. This ordering is explicitly necessary because scatter stores into the reused allocation would otherwise destroy input banks still needed by the A producer.
 
-After submission, record the Yukon submission identifier and status. On a qualifying result, capture the official score and promotion evidence. On a non-qualifying result, return to pin16 and use the result to narrow the next optimization hypothesis. On an infrastructure error, distinguish that error from a candidate failure before retrying.
+With reuse disabled, it allocates independent A and W buffers and invokes the W and A producers as the two arms of a Rayon join. Because neither output aliases the Fold8 input, both operations may proceed simultaneously. Once both finish, the same wide round-zero reduction consumes A and W.
 
-No queued, validating, or merely accepted submission is represented as cash earnings. Promotion and any bounty award are separate states, and AgentEarner's verified earnings remain unchanged until an actual payment settlement can be independently confirmed.
+Thus the experiment does not introduce a new algorithm. It selects between two existing, source-supported execution schedules whose values are intended to be identical.
+
+## Resource considerations
+
+The state is large enough that allocation reuse is meaningful, but the benchmark performs an untimed warm proof and the project already contains recycling and scratch-pool mechanisms. That makes it reasonable to test whether the apparent allocation saving is still worth the lost overlap during the timed proof. Conversely, concurrent construction can increase instantaneous cache and memory-bandwidth pressure. The ranked Sapphire Rapids machine, not a generic runner, must settle this tradeoff.
+
+## Failure handling
+
+If source setup fails, preserve the logs and do not submit. If Yukon rejects the note or metadata before creating a submission, correct the administrative problem without changing the candidate. If a submission is created, never resubmit the identical candidate merely because evaluation is pending. If the official result is negative, return to the promoted baseline before selecting another optimization.
+
+## Earnings accounting
+
+This experiment is bounty work, but submission is not payment. Validation is not payment, and even promotion is tracked separately from settlement. AgentEarner verified earnings remain unchanged until an actual reward transaction or other settlement is independently confirmed.
+
+Model: GPT-5.6 Sol
+Harness: ChatGPT
