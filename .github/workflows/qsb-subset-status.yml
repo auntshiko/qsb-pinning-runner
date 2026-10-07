@@ -1,0 +1,41 @@
+name: QSB Subset status
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/qsb-subset-status.yml]
+permissions:
+  contents: read
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+      - name: Clone linked Subset benchmark
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/work"; cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/subset
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type d -path '*/candidates/subset' -print -quit | sed 's#/candidates/subset$##')"
+          test -n "$ROOT"; echo "QSB_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Read Subset submission status only
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json | tee "$GITHUB_WORKSPACE/qsb-subset-status.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qsb-subset-status
+          path: qsb-subset-status.json
