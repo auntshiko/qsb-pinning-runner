@@ -47,21 +47,21 @@ jobs:
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/lib.rs
+          FILE=crates/flock-core/src/pcs/ring_switch.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("crates/flock-core/src/lib.rs")
+          p = Path("crates/flock-core/src/pcs/ring_switch.rs")
           s = p.read_text()
-          old = 'pub(crate) const POOL_MODE: &str = "pin16";'
-          new = 'pub(crate) const POOL_MODE: &str = "phys8";'
+          old = 'std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_none());'
+          new = 'std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_some());'
           if s.count(old) != 1:
               raise SystemExit(f"expected exactly one baseline constant, found {s.count(old)}")
           p.write_text(s.replace(old, new, 1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: POOL_MODE=phys8" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: disable Fold8 allocation reuse" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
