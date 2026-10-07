@@ -47,7 +47,9 @@ jobs:
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
           git diff --check
           CHANGED="$(git diff --name-only -- crates/flock-core/src crates/flock-prover/src)"
-          test "$CHANGED" = "$FILE"
+          printf "Solver changes:\n%s\n" "$CHANGED"
+          test "$(printf "%s\n" "$CHANGED" | grep -Fxv "$FILE" | sed '/^$/d' | wc -l)" -eq 0
+          git diff --quiet -- "$FILE" && { echo "Candidate file was not modified"; exit 5; } || true
           git diff -- "$FILE" | tee "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
