@@ -40,6 +40,14 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json > "$GITHUB_WORKSPACE/snark-before.json"
+      - name: Record runner environment
+        run: |
+          set -euo pipefail
+          echo "ImageOS=${ImageOS:-unknown}" | tee "$GITHUB_WORKSPACE/snark-runner-env.txt"
+          echo "ImageVersion=${ImageVersion:-unknown}" | tee -a "$GITHUB_WORKSPACE/snark-runner-env.txt"
+          uname -a | tee -a "$GITHUB_WORKSPACE/snark-runner-env.txt"
+          lscpu | tee -a "$GITHUB_WORKSPACE/snark-runner-env.txt"
+
       - name: Prepare benchmark dependencies
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -99,5 +107,8 @@ jobs:
             snark-four-thread-score.json
             snark-single-thread.log
             snark-four-thread.log
+            snark-known-good-control.log
+            snark-known-good-control-score.json
+            snark-runner-env.txt
             yukon-snark-after.json
           if-no-files-found: ignore
