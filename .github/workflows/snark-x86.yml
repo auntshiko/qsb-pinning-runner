@@ -169,15 +169,15 @@ jobs:
           PY
           done
 
-          echo "=== BUILD ISOLATED CANDIDATE: POOL_MODE pin16 -> phys8 ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD ISOLATED CANDIDATE: ring-switch portable inner product ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/lib.rs")
+          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
           s=p.read_text()
-          old='pub(crate) const POOL_MODE: &str = "pin16";'
-          new='pub(crate) const POOL_MODE: &str = "phys8";'
-          if old not in s: raise SystemExit("topology pool selector source mismatch")
-          if s.count(old) != 1: raise SystemExit("unexpected POOL_MODE occurrence count")
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_some());'
+          if old not in s: raise SystemExit("ring-switch IP_WIDE selector source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected IP_WIDE selector occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
