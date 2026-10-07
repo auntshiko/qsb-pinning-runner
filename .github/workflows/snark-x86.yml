@@ -47,7 +47,8 @@ jobs:
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
           git diff --check
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
-          git diff -- "$FILE" | tee "$GITHUB_WORKSPACE/snark-candidate.diff"
+          git diff -- "$FILE" > "$GITHUB_WORKSPACE/snark-candidate.diff" || true
+          cat "$GITHUB_WORKSPACE/snark-candidate.diff" || true
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
