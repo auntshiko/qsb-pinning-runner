@@ -26,11 +26,7 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p "$GITHUB_WORKSPACE/work"; cd "$GITHUB_WORKSPACE/work"
-          yukon --help | tee "$GITHUB_WORKSPACE/yukon-help.txt"
-          yukon clone --help | tee "$GITHUB_WORKSPACE/yukon-clone-help.txt"
-          yukon submissions --help | tee "$GITHUB_WORKSPACE/yukon-submissions-help.txt"
-          echo "Discovery-only run: capture authoritative CLI syntax before another submission attempt."
-          exit 2
+          yukon clone eigenlabs/flock-challenge-multi/x86
           ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
           test -n "$ROOT"
           echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
