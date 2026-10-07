@@ -63,56 +63,30 @@ jobs:
             exit 1
           fi
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated ring-switch wide inner-product rollback experiment
+      - name: Baseline deterministic single-thread diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/pcs/ring_switch.rs
-          test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
-          s=p.read_text()
-          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_none());'
-          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_some());'
-          if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one IP_WIDE selector, found {s.count(old)}")
-          p.write_text(s.replace(old,new,1))
-          if p.read_text().count(new) != 1:
-              raise SystemExit("candidate replacement verification failed")
-          PY
-          echo "Validated candidate: portable one-reduce ring-switch inner product instead of AVX-512 wide path" > "$GITHUB_WORKSPACE/snark-candidate.diff"
-      - name: Setup x86
-        working-directory: ${{ env.SNARK_ROOT }}
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
-          yukon setup --track x86
-      - name: Benchmark candidate gate
-        working-directory: ${{ env.SNARK_ROOT }}
-        run: |
-          set -euo pipefail
-          export BLAKE3_WARMUP_RUNS=2
-          export BLAKE3_RUNS=7
+          export RAYON_NUM_THREADS=1
+          export BLAKE3_WARMUP_RUNS=0
+          export BLAKE3_RUNS=1
+          rm -f score.json
+          echo "=== deterministic baseline: RAYON_NUM_THREADS=1 ==="
           ./benchmark.sh
-          python3 - <<'PY'
-          import json, pathlib
-          p=pathlib.Path("score.json")
-          d=json.loads(p.read_text())
-          print("Candidate benchmark:", json.dumps(d, indent=2))
-          score=d.get("score")
-          if not isinstance(score,(int,float)) or score <= 0:
-              raise SystemExit("benchmark did not produce a positive numeric score")
-          pathlib.Path("../../snark-local-score.txt").write_text(str(score)+"\n")
-          base=json.loads(pathlib.Path("../../snark-baseline-score.json").read_text()).get("score")
-          if not isinstance(base,(int,float)) or base <= 0:
-              raise SystemExit("baseline benchmark did not produce a positive numeric score")
-          gain=(score/base-1.0)*100.0
-          pathlib.Path("../../snark-local-gain.txt").write_text(f"{gain:.6f}\n")
-          print(f"Baseline score: {base}; candidate score: {score}; gain: {gain:.3f}%")
-          if gain < 2.0:
-              raise SystemExit(f"candidate rejected by local gate: {gain:.3f}% < 2.000%")
-          PY
+          cp score.json "$GITHUB_WORKSPACE/snark-single-thread-score.json"
+
+      - name: Baseline four-thread diagnostic
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export RAYON_NUM_THREADS=4
+          export BLAKE3_WARMUP_RUNS=0
+          export BLAKE3_RUNS=1
+          rm -f score.json
+          echo "=== baseline control: RAYON_NUM_THREADS=4 ==="
+          ./benchmark.sh
+          cp score.json "$GITHUB_WORKSPACE/snark-four-thread-score.json"
+
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
         run: |
