@@ -169,15 +169,15 @@ jobs:
           PY
           done
 
-          echo "=== BUILD ISOLATED CANDIDATE: RECYCLE_MIN 32K -> 28K ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD ISOLATED CANDIDATE: POOL_MODE pin16 -> phys8 ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-prover/src/recycle_alloc.rs")
+          p=Path("crates/flock-core/src/lib.rs")
           s=p.read_text()
-          old='const RECYCLE_MIN: usize = 32 * 1024;'
-          new='const RECYCLE_MIN: usize = 28 * 1024;'
-          if old not in s: raise SystemExit("recycle allocator threshold source mismatch")
-          if s.count(old) != 1: raise SystemExit("unexpected RECYCLE_MIN occurrence count")
+          old='pub(crate) const POOL_MODE: &str = "pin16";'
+          new='pub(crate) const POOL_MODE: &str = "phys8";'
+          if old not in s: raise SystemExit("topology pool selector source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected POOL_MODE occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
