@@ -73,6 +73,8 @@ jobs:
             yukon-help.txt
             yukon-clone-help.txt
             yukon-submissions-help.txt
+            yukon-recycle_alloc.rs
+            yukon-allocator-summary.txt
             snark-before.json
             yukon-snark-submit.log
             yukon-snark-after.json
