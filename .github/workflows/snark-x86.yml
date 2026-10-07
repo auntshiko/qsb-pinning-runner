@@ -49,39 +49,25 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply lincheck scalar plus fixed-tile scheduling experiment
+      - name: Apply isolated NTT shaped-kernel rollback experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/lincheck/kernels/x86_64.rs
+          FILE=crates/flock-core/src/ntt/additive_ntt_f128.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/lincheck/kernels/x86_64.rs")
+          p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
           s=p.read_text()
-          old='*ON.get_or_init(|| std::env::var_os("FLOCK_NO_LC_MATS_AOS").is_none())'
-          new='*ON.get_or_init(|| std::env::var_os("FLOCK_NO_LC_MATS_AOS").is_some())'
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_some());'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one LC_MATS_AOS selector, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one NTT_SHAPED selector, found {s.count(old)}")
           p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: lincheck AoS vector path disabled by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
-          FILE2=crates/flock-core/src/lincheck.rs
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("crates/flock-core/src/lincheck.rs")
-          s=p.read_text()
-          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_DYNAMIC_TILES").is_none());'
-          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_DYNAMIC_TILES").is_some());'
-          if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one LC_DYNAMIC_TILES selector, found {s.count(old)}")
-          p.write_text(s.replace(old,new,1))
-          if p.read_text().count(new) != 1:
-              raise SystemExit("second candidate replacement verification failed")
-          PY
-          echo "Combined candidate: scalar lincheck mats + fixed contiguous tile scheduling" >> "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: generic NTT deep-row dispatch instead of shaped kernels" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
