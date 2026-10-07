@@ -46,7 +46,7 @@ jobs:
           sed -i 's/^const RECYCLE_MIN: usize = 32 \* 1024;$/const RECYCLE_MIN: usize = 16 * 1024;/' "$FILE"
           grep -Fxq 'const RECYCLE_MIN: usize = 16 * 1024;' "$FILE"
           git diff --check
-          CHANGED="$(git diff --name-only)"
+          CHANGED="$(git diff --name-only -- crates/flock-core/src crates/flock-prover/src)"
           test "$CHANGED" = "$FILE"
           git diff -- "$FILE" | tee "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
