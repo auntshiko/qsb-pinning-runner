@@ -49,7 +49,7 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply combined lincheck rollback experiment
+      - name: Apply lincheck scalar plus inner-product rollback experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -68,20 +68,20 @@ jobs:
               raise SystemExit("candidate replacement verification failed")
           PY
           echo "Validated candidate: lincheck AoS vector path disabled by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
-          FILE2=crates/flock-core/src/lincheck.rs
+          FILE2=crates/flock-core/src/pcs/ring_switch.rs
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/lincheck.rs")
+          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
           s=p.read_text()
-          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_CSC_U16").is_none());'
-          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_CSC_U16").is_some());'
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_IP_WIDE").is_some());'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one LC_CSC_U16 selector, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one IP_WIDE selector, found {s.count(old)}")
           p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("second candidate replacement verification failed")
           PY
-          echo "Combined candidate: scalar lincheck mats + u32 CSC rows" >> "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Combined candidate: scalar lincheck mats + portable one-reduce inner product" >> "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
