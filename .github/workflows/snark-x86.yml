@@ -47,21 +47,21 @@ jobs:
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-prover/src/recycle_alloc.rs
+          FILE=crates/flock-core/src/lib.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("crates/flock-prover/src/recycle_alloc.rs")
+          p = Path("crates/flock-core/src/lib.rs")
           s = p.read_text()
-          old = "const RECYCLE_MIN: usize = 32 * 1024;"
-          new = "const RECYCLE_MIN: usize = 16 * 1024;"
+          old = 'pub(crate) const POOL_MODE: &str = "pin16";'
+          new = 'pub(crate) const POOL_MODE: &str = "phys8";'
           if s.count(old) != 1:
               raise SystemExit(f"expected exactly one baseline constant, found {s.count(old)}")
           p.write_text(s.replace(old, new, 1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: RECYCLE_MIN=16KiB" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: POOL_MODE=phys8" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
