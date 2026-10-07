@@ -1,4 +1,4 @@
-name: SNARK.fast x86 allocator experiment
+name: SNARK.fast x86 candidate benchmark
 on:
   workflow_dispatch:
     inputs:
@@ -49,25 +49,25 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated Fold8 reuse experiment
+      - name: Apply isolated cascade5 experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/pcs/ring_switch.rs
+          FILE=crates/flock-core/src/zerocheck.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("crates/flock-core/src/pcs/ring_switch.rs")
+          p = Path("crates/flock-core/src/zerocheck.rs")
           s = p.read_text()
-          old = 'std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_none());'
-          new = 'std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_some());'
+          old = 'std::env::var_os("FLOCK_NO_ZC_CASCADE5").is_some()'
+          new = 'std::env::var_os("FLOCK_NO_ZC_CASCADE5").is_none()'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one baseline constant, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one cascade5 selector, found {s.count(old)}")
           p.write_text(s.replace(old, new, 1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: disable Fold8 allocation reuse" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: disable cascade5 by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
