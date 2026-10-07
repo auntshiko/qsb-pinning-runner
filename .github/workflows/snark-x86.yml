@@ -49,7 +49,7 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated lincheck scalar matrix experiment
+      - name: Apply lincheck scalar plus fixed-tile scheduling experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -68,6 +68,20 @@ jobs:
               raise SystemExit("candidate replacement verification failed")
           PY
           echo "Validated candidate: lincheck AoS vector path disabled by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          FILE2=crates/flock-core/src/lincheck.rs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/lincheck.rs")
+          s=p.read_text()
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_DYNAMIC_TILES").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_DYNAMIC_TILES").is_some());'
+          if s.count(old) != 1:
+              raise SystemExit(f"expected exactly one LC_DYNAMIC_TILES selector, found {s.count(old)}")
+          p.write_text(s.replace(old,new,1))
+          if p.read_text().count(new) != 1:
+              raise SystemExit("second candidate replacement verification failed")
+          PY
+          echo "Combined candidate: scalar lincheck mats + fixed contiguous tile scheduling" >> "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
