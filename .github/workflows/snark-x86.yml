@@ -36,16 +36,22 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json >"$GITHUB_WORKSPACE/snark-before.json"
-      - name: Apply isolated allocator threshold experiment
+      - name: Inspect current Yukon allocator baseline
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
           FILE=crates/flock-prover/src/recycle_alloc.rs
-          grep -q '^const RECYCLE_MIN: usize = 32 \* 1024;$' "$FILE" || { echo "Expected promoted cutoff not found"; exit 4; }
-          sed -i 's/^const RECYCLE_MIN: usize = 32 \* 1024;$/const RECYCLE_MIN: usize = 16 * 1024;/' "$FILE"
-          git diff --check -- crates/flock-core/src crates/flock-prover/src
-          test "$(git status --short -- crates/flock-core/src crates/flock-prover/src | wc -l)" -eq 1
-          git diff -- "$FILE"
+          {
+            echo "HEAD=$(git rev-parse HEAD)"
+            echo "TRACKS:"
+            yukon tracks || true
+            echo "ALLOCATOR CONSTANTS:"
+            grep -nE 'RECYCLE|ALIGN|recyclable' "$FILE" || true
+            echo "FILE SHA256:"
+            sha256sum "$FILE"
+          } | tee "$GITHUB_WORKSPACE/snark-baseline.txt"
+          echo "Inspection-only: baseline captured; no candidate submitted in this run."
+          exit 2
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -75,6 +81,7 @@ jobs:
             yukon-submissions-help.txt
             yukon-recycle_alloc.rs
             yukon-allocator-summary.txt
+            snark-baseline.txt
             snark-before.json
             yukon-snark-submit.log
             yukon-snark-after.json
