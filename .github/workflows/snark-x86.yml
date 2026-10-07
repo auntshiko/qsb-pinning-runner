@@ -1,6 +1,12 @@
 name: SNARK.fast x86 allocator experiment
 on:
   workflow_dispatch:
+    inputs:
+      submit:
+        description: "Submit candidate to Yukon after benchmark gate passes"
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -59,7 +65,29 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon setup --track x86
+      - name: Benchmark candidate gate
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export BLAKE3_WARMUP_RUNS=2
+          export BLAKE3_RUNS=7
+          ./benchmark.sh
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path("score.json")
+          d=json.loads(p.read_text())
+          print("Candidate benchmark:", json.dumps(d, indent=2))
+          score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0:
+              raise SystemExit("benchmark did not produce a positive numeric score")
+          pathlib.Path("../../snark-local-score.txt").write_text(str(score)+"\n")
+          PY
+      - name: Require explicit Yukon release
+        if: ${{ inputs.submit != true }}
+        run: |
+          echo "Local benchmark completed. Yukon submission withheld by default."
       - name: Submit to Yukon
+        if: ${{ inputs.submit == true }}
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -80,5 +108,6 @@ jobs:
             snark-candidate.diff
             snark-before.json
             yukon-snark-submit.log
+            snark-local-score.txt
             yukon-snark-after.json
           if-no-files-found: ignore
