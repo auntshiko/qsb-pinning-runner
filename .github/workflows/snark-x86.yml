@@ -40,6 +40,12 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json > "$GITHUB_WORKSPACE/snark-before.json"
+      - name: Prepare benchmark dependencies
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          ./setup.sh
+
       - name: Baseline deterministic single-thread diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
