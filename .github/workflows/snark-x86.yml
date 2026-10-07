@@ -86,8 +86,30 @@ jobs:
           HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
+          mkdir -p benchmark-results/ab/scratch
+          : > "$GITHUB_WORKSPACE/snark-ab.log"
+          : > "$GITHUB_WORKSPACE/snark-ab.tsv"
+          threads="$(nproc)"
+          seeds="0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615"
 
-          # Candidate 1: disable Fold8 A-state allocation reuse, allowing W/A construction in parallel.
+          echo "=== CLEAN BASELINE PHASE ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          for seed in $seeds; do
+            rm -f score.json
+            echo "=== baseline seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$BASE" \
+              "$PWD/benchmark-results/ab/scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/ab/summary.md" 18 "$threads" 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            python3 - "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
+          import json,sys
+          seed,out=sys.argv[1:]
+          d=json.load(open("score.json")); score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0: raise SystemExit("invalid baseline score")
+          with open(out,"a") as f: f.write(f"baseline\t{seed}\t{score}\n")
+          PY
+          done
+
+          echo "=== BUILD CANDIDATE AFTER BASELINE ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
           p=Path("crates/flock-core/src/pcs/ring_switch.rs")
@@ -103,30 +125,23 @@ jobs:
           CAND="$PWD/target/ab-candidate/challenge/flock-benchmark-worker"
           test -x "$CAND"
 
-          mkdir -p benchmark-results/ab/scratch
-          : > "$GITHUB_WORKSPACE/snark-ab.log"
-          : > "$GITHUB_WORKSPACE/snark-ab.tsv"
-          threads="$(nproc)"
-          for seed in 0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615; do
-            for variant in baseline candidate; do
-              if [ "$variant" = baseline ]; then worker="$BASE"; else worker="$CAND"; fi
-              rm -f score.json
-              echo "=== $variant seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-              FLOCK_DIAG_SEED="$seed" "$HARNESS" "$worker" \
-                "$PWD/benchmark-results/ab/scratch" "$PWD/score.json" \
-                "$PWD/benchmark-results/ab/summary.md" 18 "$threads" 0 1 \
-                2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-              python3 - "$variant" "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
+          echo "=== CANDIDATE PHASE ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          for seed in $seeds; do
+            rm -f score.json
+            echo "=== candidate seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$CAND" \
+              "$PWD/benchmark-results/ab/scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/ab/summary.md" 18 "$threads" 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            python3 - "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
           import json,sys
-          variant,seed,out=sys.argv[1:]
-          d=json.load(open("score.json"))
-          score=d.get("score")
-          if not isinstance(score,(int,float)) or score <= 0:
-              raise SystemExit(f"{variant} seed {seed}: invalid score")
-          with open(out,"a") as f: f.write(f"{variant}\t{seed}\t{score}\n")
+          seed,out=sys.argv[1:]
+          d=json.load(open("score.json")); score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0: raise SystemExit("invalid candidate score")
+          with open(out,"a") as f: f.write(f"candidate\t{seed}\t{score}\n")
           PY
-            done
           done
+
           python3 - "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY' | tee "$GITHUB_WORKSPACE/snark-local-gain.txt"
           import sys,statistics
           rows=[x.strip().split("\t") for x in open(sys.argv[1]) if x.strip()]
@@ -134,12 +149,10 @@ jobs:
           for variant,seed,score in rows: d.setdefault(seed,{})[variant]=float(score)
           gains=[]
           for seed in d:
-              b=d[seed]["baseline"]; c=d[seed]["candidate"]
-              g=(c/b-1)*100
-              gains.append(g)
-              print(f"seed={seed} baseline={b:.3f} candidate={c:.3f} gain={g:+.3f}%")
-          med=statistics.median(gains)
-          wins=sum(g>0 for g in gains)
+              b=d[seed]["baseline"]; cc=d[seed]["candidate"]
+              g=(cc/b-1)*100; gains.append(g)
+              print(f"seed={seed} baseline={b:.3f} candidate={cc:.3f} gain={g:+.3f}%")
+          med=statistics.median(gains); wins=sum(g>0 for g in gains)
           print(f"paired_median_gain={med:+.3f}% wins={wins}/{len(gains)}")
           print("GATE_PASS" if med >= 2.0 and wins >= 5 else "GATE_REJECT")
           PY
