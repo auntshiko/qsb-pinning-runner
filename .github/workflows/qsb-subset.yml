@@ -21,8 +21,7 @@ jobs:
           sh /tmp/yukon-install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           test -n "${YUKON_API_TOKEN:-}"
-          SKILL="$(find "$HOME" -type f -name SKILL.md 2>/dev/null | grep -i yukon | head -1 || true)"
-          test -n "$SKILL" && cat "$SKILL"
+          find "$HOME" -type f -name SKILL.md -print 2>/dev/null | head -20 || true
       - name: Clone linked Subset worktree
         run: |
           set -euo pipefail
@@ -36,8 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          SKILL="$(find "$HOME" -type f -name SKILL.md 2>/dev/null | grep -i yukon | head -1 || true)"
-          test -n "$SKILL" && cat "$SKILL"
+          find "$HOME" -type f -name SKILL.md -print 2>/dev/null | head -20 || true
           yukon submissions --json >"$GITHUB_WORKSPACE/subset-before.json"
       - name: Apply isolated runtime Q-mix experiment
         working-directory: ${{ env.QSB_ROOT }}
