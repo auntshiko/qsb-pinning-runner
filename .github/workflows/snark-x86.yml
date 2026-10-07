@@ -40,7 +40,15 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json > "$GITHUB_WORKSPACE/snark-before.json"
-      - name: Apply isolated allocator threshold experiment
+      - name: Benchmark promoted baseline
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          export BLAKE3_WARMUP_RUNS=2
+          export BLAKE3_RUNS=7
+          ./benchmark.sh
+          cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
+      - name: Apply isolated Fold8 reuse experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -81,6 +89,14 @@ jobs:
           if not isinstance(score,(int,float)) or score <= 0:
               raise SystemExit("benchmark did not produce a positive numeric score")
           pathlib.Path("../../snark-local-score.txt").write_text(str(score)+"\n")
+          base=json.loads(pathlib.Path("../../snark-baseline-score.json").read_text()).get("score")
+          if not isinstance(base,(int,float)) or base <= 0:
+              raise SystemExit("baseline benchmark did not produce a positive numeric score")
+          gain=(score/base-1.0)*100.0
+          pathlib.Path("../../snark-local-gain.txt").write_text(f"{gain:.6f}\n")
+          print(f"Baseline score: {base}; candidate score: {score}; gain: {gain:.3f}%")
+          if gain < 2.0:
+              raise SystemExit(f"candidate rejected by local gate: {gain:.3f}% < 2.000%")
           PY
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -109,5 +125,7 @@ jobs:
             snark-before.json
             yukon-snark-submit.log
             snark-local-score.txt
+            snark-local-gain.txt
+            snark-baseline-score.json
             yukon-snark-after.json
           if-no-files-found: ignore
