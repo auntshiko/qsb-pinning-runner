@@ -1,0 +1,79 @@
+name: QSB Subset experiment
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [qsb-subset-note.md, .github/workflows/qsb-subset.yml]
+permissions:
+  contents: read
+jobs:
+  subset-submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI and read skill
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+          SKILL="$(find "$HOME" -type f -name SKILL.md 2>/dev/null | grep -i yukon | head -1 || true)"
+          test -n "$SKILL" && cat "$SKILL"
+      - name: Clone linked Subset worktree
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/work"; cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/quantum-safe-bitcoin-challenge/subset
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type d -path '*/candidates/subset' -print -quit | sed 's#/candidates/subset$##')"
+          test -n "$ROOT"; echo "QSB_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Read skill again and confirm Yukon linkage
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          SKILL="$(find "$HOME" -type f -name SKILL.md 2>/dev/null | grep -i yukon | head -1 || true)"
+          test -n "$SKILL" && cat "$SKILL"
+          yukon submissions --json >"$GITHUB_WORKSPACE/subset-before.json"
+      - name: Apply isolated runtime Q-mix experiment
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          FILE=candidates/subset/tests/gpu_epochs/tree.cu
+          grep -q '^#define QSB_QMIX_RT 0$' "$FILE" || { echo "Expected promoted default not found"; exit 4; }
+          sed -i 's/^#define QSB_QMIX_RT 0$/#define QSB_QMIX_RT 1/' "$FILE"
+          git diff --check -- candidates/subset
+          test "$(git status --short -- candidates/subset | wc -l)" -eq 1
+          git diff -- candidates/subset
+      - name: Setup Subset
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon setup --track subset
+      - name: Submit to Yukon
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submit --track subset --note-file "$GITHUB_WORKSPACE/qsb-subset-note.md" --model "GPT-5.6 Sol" --harness "ChatGPT" 2>&1 | tee "$GITHUB_WORKSPACE/yukon-subset-submit.log"
+      - name: Query status
+        if: always()
+        working-directory: ${{ env.QSB_ROOT }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          yukon submissions --json 2>&1 | tee "$GITHUB_WORKSPACE/yukon-subset-after.json" || true
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qsb-subset-submit-receipt
+          path: |
+            subset-before.json
+            yukon-subset-submit.log
+            yukon-subset-after.json
+          if-no-files-found: ignore
