@@ -54,6 +54,60 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
+      - name: Preflight trusted-baseline validity
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          cp benchmark-tools/harness/src/main.rs /tmp/flock-preflight-harness-main.rs
+          trap 'cp /tmp/flock-preflight-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("benchmark-tools/harness/src/main.rs")
+          s=p.read_text()
+          old='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              if let Ok(value) = std::env::var("FLOCK_DIAG_SEED") {
+                  return Ok(value.parse()?);
+              }
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          if old not in s: raise SystemExit("fresh_seed source mismatch")
+          p.write_text(s.replace(old,new,1))
+          PY
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/preflight-harness -p flock-benchmark-harness
+          HARNESS="$PWD/target/preflight-harness/challenge/flock_benchmark_harness"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          test -x "$HARNESS"; test -x "$BASE"
+          rm -rf benchmark-results/preflight
+          mkdir -p benchmark-results/preflight
+          rm -f score.json
+          echo "=== PREFLIGHT baseline seed=0 threads=1 ==="
+          set +e
+          FLOCK_DIAG_SEED=0 "$HARNESS" "$BASE" "$PWD/benchmark-results/preflight" "$PWD/score.json" \
+            "$PWD/benchmark-results/preflight.md" 18 1 0 1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Hosted runner rejected trusted baseline seed 0; candidate was not built or measured. Re-run on a fresh runner."
+            exit 86
+          fi
+          python3 - <<'PY'
+          import json
+          d=json.load(open("score.json"))
+          if not isinstance(d.get("score"),(int,float)) or d["score"] <= 0:
+              raise SystemExit("preflight produced no valid verified score")
+          print("PREFLIGHT_PASS trusted baseline verified")
+          PY
+
       - name: Reliable single-thread paired A/B gate
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
