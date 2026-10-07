@@ -111,14 +111,15 @@ jobs:
           PY
           done
 
-          echo "=== BUILD ISOLATED CANDIDATE ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD ISOLATED CANDIDATE: RECYCLE_MIN 32K -> 16K ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
+          p=Path("crates/flock-prover/src/recycle_alloc.rs")
           s=p.read_text()
-          old='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_none()'
-          new='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_some()'
-          if old not in s: raise SystemExit("Fold8 reuse switch source mismatch")
+          old='const RECYCLE_MIN: usize = 32 * 1024;'
+          new='const RECYCLE_MIN: usize = 16 * 1024;'
+          if old not in s: raise SystemExit("recycle allocator threshold source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected RECYCLE_MIN occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
