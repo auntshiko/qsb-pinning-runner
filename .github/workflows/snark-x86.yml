@@ -50,7 +50,7 @@ jobs:
             echo "FILE SHA256:"
             sha256sum "$FILE"
           } | tee "$GITHUB_WORKSPACE/snark-baseline.txt"
-          echo "Inspection-only: baseline captured; no candidate submitted in this run."
+          echo "Inspection-only: baseline captured; no candidate submitted in this run. Trigger diagnostic."
           exit 2
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
