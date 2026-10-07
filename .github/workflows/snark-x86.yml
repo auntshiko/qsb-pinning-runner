@@ -46,6 +46,7 @@ jobs:
           set -euo pipefail
           export BLAKE3_WARMUP_RUNS=2
           export BLAKE3_RUNS=7
+          ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
       - name: Apply isolated Fold8 reuse experiment
