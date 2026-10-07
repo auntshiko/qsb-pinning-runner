@@ -54,11 +54,12 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
-      - name: Repeated identical-seed validity diagnostic
+      - name: Reliable single-thread paired A/B gate
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
           cp benchmark-tools/harness/src/main.rs /tmp/flock-harness-main.rs
+          trap 'cp /tmp/flock-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
           python3 - <<'PY'
           from pathlib import Path
           p=Path("benchmark-tools/harness/src/main.rs")
@@ -84,43 +85,84 @@ jobs:
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/seed-diagnostic -p flock-benchmark-harness
           HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
-          WORKER="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
-          test -x "$HARNESS"; test -x "$WORKER"
-          mkdir -p benchmark-results/repeat/scratch
-          : > "$GITHUB_WORKSPACE/snark-repeat-seed0.log"
-          : > "$GITHUB_WORKSPACE/snark-repeat-seed0.tsv"
-          threads="$(nproc)"
-          for attempt in 1 2 3 4 5 6; do
-            rm -f score.json
-            echo "=== seed=0 attempt=$attempt threads=$threads ===" | tee -a "$GITHUB_WORKSPACE/snark-repeat-seed0.log"
-            set +e
-            FLOCK_DIAG_SEED=0 "$HARNESS" "$WORKER" \
-              "$PWD/benchmark-results/repeat/scratch" "$PWD/score.json" \
-              "$PWD/benchmark-results/repeat/summary.md" 18 "$threads" 0 1 \
-              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-repeat-seed0.log"
-            rc=${PIPESTATUS[0]}
-            set -e
-            score=""
-            if [ -f score.json ]; then
-              score="$(python3 -c 'import json; print(json.load(open("score.json")).get("score",""))' || true)"
-            fi
-            printf "%s\t%s\t%s\n" "$attempt" "$rc" "$score" | tee -a "$GITHUB_WORKSPACE/snark-repeat-seed0.tsv"
-          done
-          python3 - "$GITHUB_WORKSPACE/snark-repeat-seed0.tsv" <<'PY' | tee "$GITHUB_WORKSPACE/snark-local-gain.txt"
-          import sys
-          rows=[x.rstrip("\n").split("\t") for x in open(sys.argv[1]) if x.strip()]
-          passed=sum(rc=="0" for _,rc,*_ in rows)
-          failed=len(rows)-passed
-          print(f"identical_seed0_passes={passed} failures={failed} total={len(rows)}")
-          if passed and failed:
-              print("NONDETERMINISTIC_VALIDITY_CONFIRMED")
-          elif failed:
-              print("CONSISTENT_FAILURE")
-          else:
-              print("CONSISTENT_PASS")
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          test -x "$HARNESS"; test -x "$BASE"
+          seeds="0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615"
+          threads=1
+          rm -rf benchmark-results/ab
+          mkdir -p benchmark-results/ab
+          : > "$GITHUB_WORKSPACE/snark-ab.log"
+          : > "$GITHUB_WORKSPACE/snark-ab.tsv"
+
+          echo "=== BASELINE RELIABILITY PHASE threads=$threads ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          for seed in $seeds; do
+            scratch="$PWD/benchmark-results/ab/baseline-$seed"
+            rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
+            echo "=== baseline seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/ab/baseline-$seed.md" 18 "$threads" 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            python3 - "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
+          import json,sys
+          seed,out=sys.argv[1:]
+          d=json.load(open("score.json")); score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0: raise SystemExit("invalid baseline score")
+          with open(out,"a") as f: f.write(f"baseline\t{seed}\t{score}\n")
           PY
-          cp /tmp/flock-harness-main.rs benchmark-tools/harness/src/main.rs
-          exit 0
+          done
+
+          echo "=== BUILD ISOLATED CANDIDATE ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/pcs/ring_switch.rs")
+          s=p.read_text()
+          old='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_none()'
+          new='std::env::var_os("FLOCK_NO_RS_REUSE_FOLD8_A").is_some()'
+          if old not in s: raise SystemExit("Fold8 reuse switch source mismatch")
+          p.write_text(s.replace(old,new,1))
+          PY
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
+          CAND="$PWD/target/ab-candidate/challenge/flock-benchmark-worker"
+          test -x "$CAND"
+
+          echo "=== CANDIDATE PHASE threads=$threads ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          for seed in $seeds; do
+            scratch="$PWD/benchmark-results/ab/candidate-$seed"
+            rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
+            echo "=== candidate seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            FLOCK_DIAG_SEED="$seed" "$HARNESS" "$CAND" "$scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/ab/candidate-$seed.md" 18 "$threads" 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+            python3 - "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
+          import json,sys
+          seed,out=sys.argv[1:]
+          d=json.load(open("score.json")); score=d.get("score")
+          if not isinstance(score,(int,float)) or score <= 0: raise SystemExit("invalid candidate score")
+          with open(out,"a") as f: f.write(f"candidate\t{seed}\t{score}\n")
+          PY
+          done
+
+          python3 - "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY' | tee "$GITHUB_WORKSPACE/snark-local-gain.txt"
+          import sys,statistics
+          rows=[x.strip().split("\t") for x in open(sys.argv[1]) if x.strip()]
+          d={}
+          for variant,seed,score in rows: d.setdefault(seed,{})[variant]=float(score)
+          if len(d) != 6 or any(set(v) != {"baseline","candidate"} for v in d.values()):
+              raise SystemExit("incomplete paired benchmark")
+          gains=[]
+          for seed,v in d.items():
+              b=v["baseline"]; c=v["candidate"]; g=(c/b-1)*100
+              gains.append(g); print(f"seed={seed} baseline={b:.3f} candidate={c:.3f} gain={g:+.3f}%")
+          med=statistics.median(gains); wins=sum(g>0 for g in gains)
+          print(f"paired_median_gain={med:+.3f}% wins={wins}/6")
+          if med >= 2.0 and wins >= 5:
+              print("GATE_PASS")
+          else:
+              print("GATE_REJECT")
+              raise SystemExit(2)
+          PY
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -154,8 +196,8 @@ jobs:
             snark-four-thread-score.json
             snark-single-thread.log
             snark-four-thread.log
-            snark-repeat-seed0.log
-            snark-repeat-seed0.tsv
+            snark-ab.log
+            snark-ab.tsv
             snark-runner-env.txt
             yukon-snark-after.json
           if-no-files-found: ignore
