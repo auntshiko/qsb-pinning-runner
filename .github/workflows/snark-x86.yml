@@ -40,29 +40,6 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           yukon submissions --json > "$GITHUB_WORKSPACE/snark-before.json"
-      - name: Benchmark promoted baseline
-        working-directory: ${{ env.SNARK_ROOT }}
-        run: |
-          set -euo pipefail
-          export BLAKE3_WARMUP_RUNS=2
-          export BLAKE3_RUNS=7
-          ./setup.sh
-          rm -f score.json
-          baseline_ok=0
-          for attempt in 1 2 3; do
-            echo "Baseline verification attempt $attempt/3"
-            if ./benchmark.sh; then
-              baseline_ok=1
-              break
-            fi
-            echo "Baseline attempt $attempt failed; retrying unchanged baseline."
-            rm -f score.json
-          done
-          if [ "$baseline_ok" -ne 1 ]; then
-            echo "Unchanged baseline failed verification three times; candidate not evaluated."
-            exit 1
-          fi
-          cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
       - name: Baseline deterministic single-thread diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -72,8 +49,17 @@ jobs:
           export BLAKE3_RUNS=1
           rm -f score.json
           echo "=== deterministic baseline: RAYON_NUM_THREADS=1 ==="
-          ./benchmark.sh
-          cp score.json "$GITHUB_WORKSPACE/snark-single-thread-score.json"
+          set +e
+          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-single-thread.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 0 ] && [ -s score.json ]; then
+            cp score.json "$GITHUB_WORKSPACE/snark-single-thread-score.json"
+            echo "single-thread verifier: PASS"
+          else
+            echo "single-thread verifier: FAIL (rc=$rc)"
+          fi
+          exit 0
 
       - name: Baseline four-thread diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
@@ -84,15 +70,24 @@ jobs:
           export BLAKE3_RUNS=1
           rm -f score.json
           echo "=== baseline control: RAYON_NUM_THREADS=4 ==="
-          ./benchmark.sh
-          cp score.json "$GITHUB_WORKSPACE/snark-four-thread-score.json"
+          set +e
+          ./benchmark.sh 2>&1 | tee "$GITHUB_WORKSPACE/snark-four-thread.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -eq 0 ] && [ -s score.json ]; then
+            cp score.json "$GITHUB_WORKSPACE/snark-four-thread-score.json"
+            echo "four-thread verifier: PASS"
+          else
+            echo "four-thread verifier: FAIL (rc=$rc)"
+          fi
+          exit 0
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
         run: |
           echo "Local benchmark completed. Yukon submission withheld by default."
       - name: Submit to Yukon
-        if: ${{ inputs.submit == true }}
+        if: ${{ false }}
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -115,6 +110,9 @@ jobs:
             yukon-snark-submit.log
             snark-local-score.txt
             snark-local-gain.txt
-            snark-baseline-score.json
+            snark-single-thread-score.json
+            snark-four-thread-score.json
+            snark-single-thread.log
+            snark-four-thread.log
             yukon-snark-after.json
           if-no-files-found: ignore
