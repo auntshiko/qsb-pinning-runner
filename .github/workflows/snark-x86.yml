@@ -49,25 +49,25 @@ jobs:
           ./setup.sh
           ./benchmark.sh
           cp score.json "$GITHUB_WORKSPACE/snark-baseline-score.json"
-      - name: Apply isolated Fold16 prefetch-disable experiment
+      - name: Apply isolated lincheck AoS rollback experiment
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          FILE=crates/flock-core/src/field/f128_slice/x86_64.rs
+          FILE=crates/flock-core/src/lincheck/kernels/x86_64.rs
           test "$(git rev-parse HEAD)" = "1b55c6ee2c9cae3c807489293199760e5e21d52b"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/field/f128_slice/x86_64.rs")
+          p=Path("crates/flock-core/src/lincheck/kernels/x86_64.rs")
           s=p.read_text()
-          old="const FOLD16_PF_AHEAD: usize = 512;"
-          new="const FOLD16_PF_AHEAD: usize = 0;"
+          old='*ON.get_or_init(|| std::env::var_os("FLOCK_NO_LC_MATS_AOS").is_none())'
+          new='*ON.get_or_init(|| std::env::var_os("FLOCK_NO_LC_MATS_AOS").is_some())'
           if s.count(old) != 1:
-              raise SystemExit(f"expected exactly one Fold16 prefetch constant, found {s.count(old)}")
+              raise SystemExit(f"expected exactly one LC_MATS_AOS selector, found {s.count(old)}")
           p.write_text(s.replace(old,new,1))
           if p.read_text().count(new) != 1:
               raise SystemExit("candidate replacement verification failed")
           PY
-          echo "Validated candidate: Fold16 prefetch disabled (512 -> 0 elements)" > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          echo "Validated candidate: lincheck AoS vector path disabled by default" > "$GITHUB_WORKSPACE/snark-candidate.diff"
       - name: Setup x86
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
