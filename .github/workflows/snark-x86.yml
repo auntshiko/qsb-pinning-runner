@@ -87,6 +87,11 @@ jobs:
             -p flock-benchmark-harness
           HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
           WORKER="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          test -x "$HARNESS"
+          test -x "$WORKER"
+          echo "HARNESS=$HARNESS" | tee "$GITHUB_WORKSPACE/snark-seed-paths.log"
+          echo "WORKER=$WORKER" | tee -a "$GITHUB_WORKSPACE/snark-seed-paths.log"
+          ls -l "$HARNESS" "$WORKER" | tee -a "$GITHUB_WORKSPACE/snark-seed-paths.log"
           mkdir -p benchmark-results/seed-diagnostic/scratch
           : > "$GITHUB_WORKSPACE/snark-seed-matrix.log"
           threads="$(nproc)"
@@ -97,7 +102,6 @@ jobs:
             FLOCK_DIAG_SEED="$seed" "$HARNESS" "$WORKER" \
               "$PWD/benchmark-results/seed-diagnostic/scratch" "$PWD/score.json" \
               "$PWD/benchmark-results/seed-diagnostic/summary.md" 18 "$threads" 0 1 \
-              "$PWD/benchmark-results/seed-diagnostic/scratch" \
               2>&1 | tee -a "$GITHUB_WORKSPACE/snark-seed-matrix.log"
             rc=${PIPESTATUS[0]}
             set -e
@@ -139,6 +143,7 @@ jobs:
             snark-single-thread.log
             snark-four-thread.log
             snark-seed-matrix.log
+            snark-seed-paths.log
             snark-runner-env.txt
             yukon-snark-after.json
           if-no-files-found: ignore
