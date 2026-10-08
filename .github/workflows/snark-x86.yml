@@ -155,7 +155,9 @@ jobs:
           }'''
           new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
               if let Ok(value) = std::env::var("FLOCK_DIAG_SEED") {
-                  return Ok(value.parse()?);
+                  let seed: u64 = value.parse()?;
+                  eprintln!("HARNESS_EFFECTIVE_SEED={seed}");
+                  return Ok(seed);
               }
               let mut bytes = [0u8; 8];
               File::open("/dev/urandom")?.read_exact(&mut bytes)?;
@@ -210,6 +212,11 @@ jobs:
             echo "::error::Trusted baseline is not deterministic on this hosted runner ($pass/3 valid). Candidate was not built or measured."
             exit 86
           fi
+          seed_lines="$(grep -c 'HARNESS_EFFECTIVE_SEED=0' "$GITHUB_WORKSPACE/snark-preflight.log" || true)"
+          if [ "$seed_lines" -ne 3 ]; then
+            echo "::error::Expected three explicit seed=0 confirmations, found $seed_lines."
+            exit 87
+          fi
           echo "PREFLIGHT_PASS trusted baseline verified 3/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
 
       - name: Reliable single-thread paired A/B gate
@@ -229,7 +236,9 @@ jobs:
           }'''
           new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
               if let Ok(value) = std::env::var("FLOCK_DIAG_SEED") {
-                  return Ok(value.parse()?);
+                  let seed: u64 = value.parse()?;
+                  eprintln!("HARNESS_EFFECTIVE_SEED={seed}");
+                  return Ok(seed);
               }
               let mut bytes = [0u8; 8];
               File::open("/dev/urandom")?.read_exact(&mut bytes)?;
