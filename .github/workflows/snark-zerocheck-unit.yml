@@ -39,12 +39,15 @@ jobs:
           from pathlib import Path
           p = Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
           src = p.read_text()
-          missing = "ntt.forward_transform_interleaved_parallel_from_layer("
-          replacement = "ntt.forward_transform_interleaved_from_layer("
-          count = src.count(missing)
-          if count != 2:
-              raise SystemExit(f"Expected exactly two missing NTT method calls, found {count}; refusing unreviewed patch")
-          src = src.replace(missing, replacement)
+          lines = src.splitlines(keepends=True)
+          old = "ntt.forward_transform_interleaved_parallel_from_layer("
+          new = "ntt.forward_transform_interleaved_from_layer("
+          targets = (5683, 5691)
+          if any(n > len(lines) or old not in lines[n-1] for n in targets):
+              raise SystemExit("Expected NTT test calls absent at lines 5683 and 5691; refusing patch")
+          for n in targets:
+              lines[n-1] = lines[n-1].replace(old, new, 1)
+          src = "".join(lines)
           p.write_text(src)
           print("Patched two test-only NTT call sites; production challenge source remains unchanged.")
           PY
