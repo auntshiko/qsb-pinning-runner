@@ -133,6 +133,10 @@ jobs:
             exit 0
           fi
           echo "=== COMPATIBLE CPU: RUNNING TARGETED TEST ==="
+          echo "=== FULL FAILING TEST SOURCE (numbered) ==="
+          nl -ba crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs | sed -n '855,1010p'
+          echo "=== KERNEL CALL SITES ==="
+          grep -n -E 'fn .*bcomplement|fn .*image|unsafe|stack|Box::|alloca|\[[^]]+; [0-9]{3,}\]' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs | head -90 || true
           echo "B_COMPLEMENT_CPU=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" >> "$GITHUB_STEP_SUMMARY"
           set +e
           cargo +1.97.0 test --locked --offline -p flock-core image_variants_and_residual_bcomplement_match_incumbent -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
