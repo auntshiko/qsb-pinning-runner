@@ -1,0 +1,45 @@
+name: SNARK folding source capture
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone linked challenge
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Capture exact folding implementations
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/folding-source"
+          git rev-parse HEAD > "$GITHUB_WORKSPACE/folding-source/revision.txt"
+          grep -RIn --include='*.rs' -E 'fn (fold2_plain_and_round_pair_lookahead_into_lm|fold2_from_packed_and_round_pair_lookahead_into_with_eq|uni_skip_round_pair_lookahead_nomat_packed_padded_with_eq)' crates/flock-core/src > "$GITHUB_WORKSPACE/folding-source/function-locations.txt" || true
+          grep -RIl --include='*.rs' -E 'fn (fold2_plain_and_round_pair_lookahead_into_lm|fold2_from_packed_and_round_pair_lookahead_into_with_eq|uni_skip_round_pair_lookahead_nomat_packed_padded_with_eq)' crates/flock-core/src | while IFS= read -r source; do
+            cp "$source" "$GITHUB_WORKSPACE/folding-source/$(basename "$source")"
+          done
+          test -s "$GITHUB_WORKSPACE/folding-source/function-locations.txt"
+          cat "$GITHUB_WORKSPACE/folding-source/function-locations.txt"
+      - name: Upload helper source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-folding-helper-source
+          path: folding-source/
+          if-no-files-found: error
