@@ -1,0 +1,57 @@
+name: SNARK Zerocheck unit correctness
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  zerocheck-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI and clone challenge
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Prepare Rust and dependencies
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          ./setup.sh
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          rustc +1.97.0 -V
+      - name: Run isolated Zerocheck tests with reference assertions
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -uo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-unit-results"
+          git rev-parse HEAD > "$GITHUB_WORKSPACE/zerocheck-unit-results/revision.txt"
+          lscpu > "$GITHUB_WORKSPACE/zerocheck-unit-results/cpu.txt"
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          export RAYON_NUM_THREADS=1
+          export RUST_TEST_THREADS=1
+          export CARGO_INCREMENTAL=0
+          export RUSTFLAGS="-C target-cpu=x86-64"
+          cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" 2>&1
+          rc=$?
+          grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
+          echo "UNIT_TEST_EXIT=$rc"
+          exit "$rc"
+      - name: Upload isolated test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerocheck-unit-correctness
+          path: zerocheck-unit-results/
+          if-no-files-found: warn
