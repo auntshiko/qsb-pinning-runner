@@ -12,7 +12,7 @@ permissions:
 jobs:
   snark-submit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
     steps:
@@ -185,26 +185,6 @@ jobs:
           done
           echo "PREFLIGHT_SUMMARY passes=$pass/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
           if [ "$pass" -lt 3 ]; then
-            echo "=== CONTROL: same trusted baseline with portable x86-64-v2 harness ===" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
-            CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v2" \
-              cargo +1.97.0 build --locked --offline --profile challenge \
-              --manifest-path Cargo.toml --target-dir target/preflight-harness-v2 -p flock-benchmark-harness
-            CONTROL="$PWD/target/preflight-harness-v2/challenge/flock_benchmark_harness"
-            test -x "$CONTROL"
-            for attempt in 1 2; do
-              scratch="$PWD/benchmark-results/preflight-v2-$attempt"
-              rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
-              set +e
-              FLOCK_DIAG_SEED=0 "$CONTROL" "$BASE" "$scratch" "$PWD/score.json" \
-                "$PWD/benchmark-results/preflight-v2-$attempt.md" 18 1 0 1 \
-                2>&1 | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
-              rc=${PIPESTATUS[0]}
-              set -e
-              echo "CONTROL_V2_ATTEMPT attempt=$attempt rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
-            done
-            echo "CONTROL_DIAGNOSTIC_ONLY candidate remains disabled" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
-          fi
-          if [ "$pass" -lt 3 ]; then
             echo "::error::Trusted baseline is not deterministic on this hosted runner ($pass/3 valid). Candidate was not built or measured."
             exit 86
           fi
@@ -271,6 +251,8 @@ jobs:
           PY
           done
 
+          echo "=== LOOKAHEAD SOURCE INSPECTION ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          grep -n -C 24 'FLOCK_NO_ZC_LOOKAHEAD' crates/flock-core/src/zerocheck.rs | head -180 | tee "$GITHUB_WORKSPACE/snark-lookahead-console.txt" || true
           echo "=== INSPECT ORIGINAL ZEROCHECK LOOKAHEAD HOT PATH ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           {
             echo "=== LOOKAHEAD REFERENCES ==="
