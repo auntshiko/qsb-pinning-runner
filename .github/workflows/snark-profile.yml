@@ -85,6 +85,33 @@ jobs:
             echo "Baseline verifier failure recorded; diagnostics retained."
             exit 1
           fi
+      - name: Sample CPU hotspots when profiling is permitted
+        if: success()
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          echo "=== PERF ACCESS ===" | tee "$GITHUB_WORKSPACE/profile-perf-status.txt"
+          cat /proc/sys/kernel/perf_event_paranoid | tee -a "$GITHUB_WORKSPACE/profile-perf-status.txt"
+          if ! command -v perf >/dev/null 2>&1; then
+            echo "perf unavailable; no hotspot attribution" | tee -a "$GITHUB_WORKSPACE/profile-perf-status.txt"
+            exit 0
+          fi
+          HARNESS="$PWD/target/profile-harness/challenge/flock_benchmark_harness"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          mkdir -p benchmark-results/perf-sample
+          set +e
+          FLOCK_DIAG_SEED=0 perf record -q -F 49 -g --call-graph dwarf,4096 -o "$GITHUB_WORKSPACE/profile-perf.data" -- "$HARNESS" "$BASE" "$PWD/benchmark-results/perf-sample" "$PWD/profile-perf-score.json" "$GITHUB_WORKSPACE/profile-perf-report.md" 18 1 0 1 > "$GITHUB_WORKSPACE/profile-perf-execution.log" 2>&1
+          rc=$?
+          set -e
+          echo "PERF_RUN_EXIT=$rc" | tee -a "$GITHUB_WORKSPACE/profile-perf-status.txt"
+          if [ "$rc" -eq 0 ]; then
+            perf report --stdio --no-children --sort comm,dso,symbol -i "$GITHUB_WORKSPACE/profile-perf.data" > "$GITHUB_WORKSPACE/profile-perf-hotspots.txt" 2>&1 || true
+            head -90 "$GITHUB_WORKSPACE/profile-perf-hotspots.txt"
+          else
+            echo "perf sampling unavailable or proof rejected; no hotspot conclusions" | tee -a "$GITHUB_WORKSPACE/profile-perf-status.txt"
+            tail -15 "$GITHUB_WORKSPACE/profile-perf-execution.log"
+          fi
       - name: Upload profile diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,4 +123,5 @@ jobs:
             profile-*.log
             profile-*.md
             profile-*.rs
+            profile-perf.data
             work/**/score.json
