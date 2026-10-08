@@ -88,13 +88,13 @@ jobs:
           lscpu | grep -E 'Model name|Flags' | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
           rustc +1.97.0 -vV | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
 
-      - name: Zerocheck validity bisection
+      - name: Repeated identical-input proof fingerprint diagnostic
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
           . "${CARGO_HOME:-$HOME/.cargo}/env"
-          cp benchmark-tools/harness/src/main.rs /tmp/flock-preflight-harness-main.rs
-          trap 'cp /tmp/flock-preflight-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
+          cp benchmark-tools/harness/src/main.rs /tmp/flock-fingerprint-harness-main.rs
+          trap 'cp /tmp/flock-fingerprint-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
           python3 - <<'PY'
           from pathlib import Path
           p=Path("benchmark-tools/harness/src/main.rs")
@@ -117,41 +117,39 @@ jobs:
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
-            --manifest-path Cargo.toml --target-dir target/preflight-harness -p flock-benchmark-harness
-          HARNESS="$PWD/target/preflight-harness/challenge/flock_benchmark_harness"
+            --manifest-path Cargo.toml --target-dir target/fingerprint-harness -p flock-benchmark-harness
+          HARNESS="$PWD/target/fingerprint-harness/challenge/flock_benchmark_harness"
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
-          : > "$GITHUB_WORKSPACE/snark-zc-bisection.log"
+          sha256sum "$BASE" | tee "$GITHUB_WORKSPACE/snark-proof-fingerprints.log"
 
-          run_case() {
-            name="$1"; shift
-            scratch="$PWD/benchmark-results/zc-bisect-$name"
-            rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
-            echo "=== ZC_BISECT case=$name seed=0 threads=1 env=$* ===" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
+          root="$PWD/benchmark-results/fingerprint"
+          rm -rf "$root"; mkdir -p "$root"
+          : > "$GITHUB_WORKSPACE/snark-proof-files.sha256"
+          for attempt in 1 2 3 4 5 6; do
+            scratch="$root/run-$attempt"
+            mkdir -p "$scratch"; rm -f score.json
+            echo "=== FINGERPRINT_RUN attempt=$attempt seed=0 threads=1 ===" | tee -a "$GITHUB_WORKSPACE/snark-proof-fingerprints.log"
             set +e
-            env FLOCK_DIAG_SEED=0 "$@" "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
-              "$PWD/benchmark-results/zc-bisect-$name.md" 18 1 0 1 \
-              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
+            FLOCK_DIAG_SEED=0 "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
+              "$root/run-$attempt.md" 18 1 0 1 2>&1 | tee "$root/run-$attempt.log"
             rc=${PIPESTATUS[0]}
             set -e
-            if [ "$rc" -eq 0 ]; then
-              echo "ZC_BISECT_PASS case=$name" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
-            else
-              echo "ZC_BISECT_FAIL case=$name rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
-            fi
-          }
+            echo "FINGERPRINT_RC attempt=$attempt rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-proof-fingerprints.log"
+            find "$scratch" -type f -print0 | sort -z | while IFS= read -r -d '' f; do
+              rel="${f#$scratch/}"
+              bytes=$(wc -c < "$f")
+              sha=$(sha256sum "$f" | awk '{print $1}')
+              printf 'attempt=%s file=%s bytes=%s sha256=%s\n' "$attempt" "$rel" "$bytes" "$sha" \
+                | tee -a "$GITHUB_WORKSPACE/snark-proof-files.sha256"
+            done
+          done
 
-          # One switch per run: these are the highest-risk zerocheck paths found
-          # by the source inventory (streaming NT publication, serial/parallel
-          # oracle, GFNI C drain, lookahead cascade, and fused tail rounds).
-          run_case default
-          run_case abinner_nt_off FLOCK_NO_ABINNER_NT=1
-          run_case serial_par_off FLOCK_NO_SERIAL_PAR=1
-          run_case c_gfni_off FLOCK_NO_ZC_C_GFNI=1
-          run_case lookahead_off FLOCK_NO_ZC_LOOKAHEAD=1
-          run_case tail_fusion_off FLOCK_NO_TAIL_FUSION=1
-
-          echo "::error::Diagnostic bisection complete. Candidate intentionally not built or measured."
+          echo "=== CROSS-RUN FINGERPRINT GROUPS ===" | tee -a "$GITHUB_WORKSPACE/snark-proof-fingerprints.log"
+          awk '{for(i=1;i<=NF;i++) if($i ~ /^file=/) f=$i; else if($i ~ /^sha256=/) h=$i; print f,h}' \
+            "$GITHUB_WORKSPACE/snark-proof-files.sha256" | sort | uniq -c \
+            | tee -a "$GITHUB_WORKSPACE/snark-proof-fingerprints.log"
+          echo "::error::Fingerprint diagnostic complete. Candidate intentionally not built or measured."
           exit 86
 
       - name: Reliable single-thread paired A/B gate
