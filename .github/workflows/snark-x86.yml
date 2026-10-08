@@ -106,6 +106,18 @@ jobs:
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
           : > "$GITHUB_WORKSPACE/snark-preflight.log"
+          # The setup-produced worker is compiled for the hosted CPU.  On some
+          # runner classes that binary has produced verifier-invalid proofs.
+          # Build a conservative baseline worker from the untouched source and
+          # preflight that exact binary; the paired gate below will use the same
+          # conservative baseline so validity and measurement refer to one build.
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v3" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/stable-baseline -p flock-benchmark-worker
+          BASE="$PWD/target/stable-baseline/challenge/flock-benchmark-worker"
+          test -x "$BASE"
+          sha256sum "$BASE" | tee "$GITHUB_WORKSPACE/snark-stable-baseline.sha256"
+
           pass=0
           for attempt in 1 2 3; do
             scratch="$PWD/benchmark-results/preflight-$attempt"
@@ -172,7 +184,7 @@ jobs:
           # Use the exact worker produced by the challenge setup as the baseline.
           # Rebuilding it with a different RUSTFLAGS target changes the binary and has
           # already produced verifier-invalid proofs on some hosted runners.
-          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          BASE="$PWD/target/stable-baseline/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
           sha256sum "$BASE" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           seeds="0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615"
@@ -210,7 +222,7 @@ jobs:
           if s.count(old) != 1: raise SystemExit("unexpected lincheck CSC selector occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
-          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v3" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
           CAND="$PWD/target/ab-candidate/challenge/flock-benchmark-worker"
