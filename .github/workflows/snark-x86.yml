@@ -289,9 +289,21 @@ jobs:
           PY
           done
 
-          echo "=== CANDIDATE GATE: previous NT-store change rejected ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-          echo "::error::No validated new candidate patch is configured. Refusing to rerun the rejected NT-store experiment."
-          exit 93
+          echo "=== CANDIDATE: reuse cascade challenge scratch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/flock-core/src/zerocheck.rs")
+          s = p.read_text()
+          a = "    for level in 0..n_levels {"
+          b = "        let mut r_next = vec![F128::ONE; log_n_cur - 2];"
+          if s.count(a) != 1 or s.count(b) != 1:
+              raise SystemExit("Expected cascade anchors missing or duplicated")
+          s = s.replace(a, "    let mut r_next = Vec::new();\n" + a, 1)
+          s = s.replace(b, "        r_next.resize(log_n_cur - 2, F128::ONE);\n        r_next[0] = F128::ONE;", 1)
+          p.write_text(s)
+          PY
+          git diff -- crates/flock-core/src/zerocheck.rs > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          test -s "$GITHUB_WORKSPACE/snark-candidate.diff"
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
