@@ -74,6 +74,32 @@ jobs:
           grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:|error\[' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
           echo "UNIT_TEST_EXIT=$rc"
           exit "$rc"
+      - name: Portable Zerocheck correctness gate (non-AVX-512)
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-unit-results"
+          export RAYON_NUM_THREADS=1 RUST_TEST_THREADS=1 CARGO_INCREMENTAL=0
+          export CARGO_TARGET_DIR="$PWD/target/zerocheck-portable-tests"
+          export RUSTFLAGS="-C target-cpu=x86-64"
+          LOG="$GITHUB_WORKSPACE/zerocheck-unit-results/portable-zerocheck.log"
+          cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$LOG" 2>&1 || {
+            tail -90 "$LOG"
+            echo "::error::Portable Zerocheck correctness tests failed."
+            exit 90
+          }
+          python3 - "$LOG" <<'PY'
+          import re,sys
+          s=open(sys.argv[1]).read()
+          matches=re.findall(r'test result: ok\. (\d+) passed; (\d+) failed;',s)
+          total=sum(int(p) for p,f in matches)
+          if not matches or total==0 or any(int(f)!=0 for p,f in matches):
+              raise SystemExit("No executed passing portable Zerocheck tests; refusing false green")
+          print(f"PORTABLE_ZEROCHECK_PASS={total}")
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write(f"PORTABLE_ZEROCHECK_PASS={total} (non-AVX-512 only)\\n")
+          PY
       - name: Capture b-complement stack allocation source
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
