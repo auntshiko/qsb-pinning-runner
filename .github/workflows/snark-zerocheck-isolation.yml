@@ -1,0 +1,45 @@
+name: SNARK Zerocheck correctness isolation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  correctness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone challenge
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Capture Zerocheck failure context
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-isolation"
+          git rev-parse HEAD > "$GITHUB_WORKSPACE/zerocheck-isolation/revision.txt"
+          lscpu > "$GITHUB_WORKSPACE/zerocheck-isolation/cpu.txt"
+          sed -n '1290,1370p' crates/flock-core/src/zerocheck.rs > "$GITHUB_WORKSPACE/zerocheck-isolation/verifier-final-round.rs"
+          grep -RIn -C 7 --include='*.rs' 'SumcheckFinalFailed' crates/flock-core/src > "$GITHUB_WORKSPACE/zerocheck-isolation/failure-sites.txt" || true
+          grep -RIn -C 4 --include='*.rs' 'FLOCK_NO_ZC_LOOKAHEAD\|zc_fold_nt_enabled' crates/flock-core/src > "$GITHUB_WORKSPACE/zerocheck-isolation/dispatch-sites.txt" || true
+          grep -RIn -C 3 --include='*.rs' 'FLOCK_DIAG_SEED\|fn fresh_seed' benchmark-tools > "$GITHUB_WORKSPACE/zerocheck-isolation/seed-sites.txt" || true
+          echo "Source-only correctness inspection complete; no proof executed."
+      - name: Upload correctness context
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerocheck-correctness-context
+          path: zerocheck-isolation/
+          if-no-files-found: error
