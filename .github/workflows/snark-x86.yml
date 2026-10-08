@@ -59,13 +59,11 @@ jobs:
           set -euo pipefail
           model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
           echo "Benchmark host: $model"
-          # Repeated EPYC 7763 hosted runs have rejected the unchanged trusted
-          # baseline with Zerocheck(SumcheckFinalFailed). Do not spend minutes
-          # building a harness on this known-problematic host class.
-          # This is an infrastructure skip, NOT a correctness or performance pass.
+          # Host classification is diagnostic only. Every host, including EPYC 7763,
+          # must pass the unchanged trusted baseline 3/3 proof preflight.
+          # A failed preflight remains a hard stop; never count it as a pass.
           if [[ "$model" == *"EPYC 7763"* ]]; then
-            echo "::notice::HOST_SKIP_KNOWN_BASELINE_FAILURE: AMD EPYC 7763; no candidate measured."
-            exit 86
+            echo "::notice::HOST_KNOWN_RISK: AMD EPYC 7763; running strict trusted-baseline verification before profiling."
           fi
           # All other hosts still require strict trusted 3/3 proof preflight.
           # CPU identification alone never counts as a correctness pass.
