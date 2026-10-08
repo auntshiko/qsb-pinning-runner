@@ -88,6 +88,23 @@ jobs:
           lscpu | grep -E 'Model name|Flags' | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
           rustc +1.97.0 -vV | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
 
+      - name: Inspect proof serialization and verifier source
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          {
+            echo "=== PROOF SERIALIZATION ==="
+            sed -n '145,215p' crates/flock-prover/src/proof_io.rs
+            sed -n '385,435p' crates/flock-prover/src/proof_io.rs
+            echo "=== ZEROCHECK VERIFICATION ==="
+            sed -n '120,205p' crates/flock-core/src/verifier.rs
+            echo "=== ZEROCHECK SUMCHECK FAILURE SITES ==="
+            grep -RIn -C 6 'SumcheckFinalFailed' crates/flock-core/src
+            echo "=== PROOF WRITER CALL SITES ==="
+            grep -RIn -C 3 'write_proof\|serialize_proof\|proof_io::' crates/flock-prover/src benchmark-tools 2>/dev/null || true
+          } > "$GITHUB_WORKSPACE/snark-proof-source-inspection.txt"
+          echo "Proof serialization/verifier source captured in artifact."
+
       - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -305,6 +322,7 @@ jobs:
             snark-ab.log
             snark-ab.tsv
             snark-runner-env.txt
+            snark-proof-source-inspection.txt
             snark-divergence.log
             snark-setup-baseline.sha256
             snark-crossenv-env.txt
