@@ -113,6 +113,10 @@ jobs:
           export RUST_MIN_STACK=33554432
           echo "=== NATIVE CPU FEATURES ==="
           lscpu | grep -E 'Model name:|Flags:|Architecture:' | cut -c1-350 || true
+          echo "=== RUSTC NATIVE FEATURE CFG ==="
+          rustc +1.97.0 --print cfg -C target-cpu=native | grep -E 'target_feature="(avx512f|vpclmulqdq|avx2)"' || true
+          echo "=== B-COMPLEMENT MODULE DECLARATIONS ==="
+          grep -R -n -B 9 -A 5 'mod x86_64_bcomplement' crates/flock-core/src/zerocheck | head -65 || true
           echo "=== COMPILED B-COMPLEMENT TEST INVENTORY ==="
           cargo +1.97.0 test --locked --offline -p flock-core -- --list > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt" 2>&1
           grep -E 'bcomplement|image_variants_and_residual' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt" | head -35 || true
