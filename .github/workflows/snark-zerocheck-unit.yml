@@ -85,11 +85,19 @@ jobs:
           export RUSTFLAGS="-C target-cpu=native"
           export RUST_MIN_STACK=33554432
           set +e
-          cargo +1.97.0 test --locked --offline -p flock-core zerocheck::univariate_skip_optimized::kernels::x86_64_bcomplement::tests::image_variants_and_residual_bcomplement_match_incumbent -- --exact --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
+          cargo +1.97.0 test --locked --offline -p flock-core image_variants_and_residual_bcomplement_match_incumbent -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
           rc=$?
           echo "=== ISOLATED NATIVE B-COMPLEMENT TEST ==="
           tail -45 "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" || true
           echo "NATIVE_BCOMPLEMENT_EXIT=$rc"
+          if grep -Eq 'running 0 tests|0 passed; 0 failed' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log"; then
+            echo "::error::Targeted b-complement test did not execute; refusing false green."
+            exit 88
+          fi
+          if ! grep -Eq 'test result: ok\\. 1 passed; 0 failed' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log"; then
+            echo "::error::Targeted b-complement test did not pass exactly once."
+            exit 89
+          fi
           exit "$rc"
       - name: Compare native x86 Zerocheck unit behavior
         working-directory: ${{ env.SNARK_ROOT }}
