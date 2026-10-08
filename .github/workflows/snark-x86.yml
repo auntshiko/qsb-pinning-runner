@@ -306,39 +306,14 @@ jobs:
           print(open(sys.argv[2]).read())
           PY
           echo "PROFILE_ONLY_COMPLETE: 6 verified baseline trials; no candidate measured; Yukon submission disabled." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-      - name: Capture baseline CPU sampling profile
+      - name: Record available in-process timing hooks
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          . "${CARGO_HOME:-$HOME/.cargo}/env"
-          HARNESS="$PWD/target/seed-diagnostic/challenge/flock_benchmark_harness"
-          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
-          test -x "$HARNESS"; test -x "$BASE"
-          mkdir -p benchmark-results/profile
-          echo "CPU profile is exploratory; no candidate performance claim." | tee "$GITHUB_WORKSPACE/snark-cpu-profile.txt"
-          if ! command -v perf >/dev/null 2>&1; then
-            echo "PERF_UNAVAILABLE: install or runner restriction; no profile recorded." | tee -a "$GITHUB_WORKSPACE/snark-cpu-profile.txt"
-          elif ! perf stat -e task-clock -- true >/dev/null 2>&1; then
-            echo "PERF_PERMISSION_DENIED: kernel perf_event restrictions; no profile recorded." | tee -a "$GITHUB_WORKSPACE/snark-cpu-profile.txt"
-          else
-            set +e
-            FLOCK_DIAG_SEED=0 perf record -F 99 -g --call-graph dwarf -o "$GITHUB_WORKSPACE/snark-perf.data" -- \
-              "$HARNESS" "$BASE" "$PWD/benchmark-results/profile" "$PWD/benchmark-results/profile-score.json" \
-              "$PWD/benchmark-results/profile.md" 18 1 0 1 > "$GITHUB_WORKSPACE/snark-perf-run.log" 2>&1
-            rc=$?
-            set -e
-            if [ "$rc" -ne 0 ]; then
-              echo "PERF_RECORD_FAILED rc=$rc; no profiler conclusions." | tee -a "$GITHUB_WORKSPACE/snark-cpu-profile.txt"
-            else
-              if ! grep -q 'verified=true' "$GITHUB_WORKSPACE/snark-perf-run.log"; then
-                echo "::error::Profiled proof was not explicitly verified."
-                exit 88
-              fi
-              perf report --stdio --no-children -i "$GITHUB_WORKSPACE/snark-perf.data" \
-                --percent-limit 0.5 --sort comm,dso,symbol > "$GITHUB_WORKSPACE/snark-cpu-profile.txt" || true
-              echo "PERF_PROFILE_CAPTURED_AND_PROOF_VERIFIED" | tee -a "$GITHUB_WORKSPACE/snark-perf-run.log"
-            fi
-          fi
+          echo "TIMING_HOOK_DISCOVERY_ONLY; no candidate measured" > "$GITHUB_WORKSPACE/snark-timing-hooks.txt"
+          rg -n 'tracing::(info_span|debug_span|instrument)|\#\[instrument|Instant::now\(|elapsed\(\)|zerocheck::prove|commit.*prove' crates/flock-prover/src crates/flock-core/src \
+            | head -n 160 >> "$GITHUB_WORKSPACE/snark-timing-hooks.txt" || true
+          echo "Existing hooks are inventory only; no per-phase duration claims." >> "$GITHUB_WORKSPACE/snark-timing-hooks.txt"
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -376,9 +351,7 @@ jobs:
             snark-ab.log
             snark-ab.tsv
             snark-baseline-profile-summary.txt
-            snark-cpu-profile.txt
-            snark-perf-run.log
-            snark-perf.data
+            snark-timing-hooks.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
