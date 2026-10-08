@@ -66,6 +66,11 @@ jobs:
             echo "::notice::HOST_SKIP_KNOWN_BASELINE_FAILURE: AMD EPYC 7763; trusted baseline historically fails; no candidate measured."
             exit 86
           fi
+          # EPYC 9V74 has both passing (#105) and failing (#109) baseline
+          # results. Do not blacklist the model; flag intermittent correctness.
+          if [[ "$model" == *"EPYC 9V74"* ]]; then
+            echo "::notice::HOST_INTERMITTENT_BASELINE_FAILURE: AMD EPYC 9V74; strict 3/3 preflight required; a failed proof is never retried as a pass."
+          fi
           # All other hosts still require strict trusted 3/3 proof preflight.
           # CPU identification alone never counts as a correctness pass.
           case "$model" in
