@@ -71,6 +71,23 @@ jobs:
               ;;
           esac
 
+      - name: Capture prover nondeterminism diagnostics
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          echo "=== SOURCE REVISION ===" | tee "$GITHUB_WORKSPACE/snark-divergence.log"
+          git rev-parse HEAD | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+          echo "=== OPTIMIZATION SELECTORS ===" | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+          grep -RIn --include='*.rs' -E 'FLOCK_NO_|target_feature|is_x86_feature_detected|par_iter|into_par_iter|rayon' crates/flock-core crates/flock-prover 2>/dev/null \
+            | tee -a "$GITHUB_WORKSPACE/snark-divergence.log" || true
+          echo "=== ZEROCHECK / SUMCHECK CALL SITES ===" | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+          grep -RIn --include='*.rs' -E 'zerocheck|Zerocheck|sumcheck|Sumcheck' crates 2>/dev/null \
+            | tee -a "$GITHUB_WORKSPACE/snark-divergence.log" || true
+          echo "=== CPU FEATURE ENVIRONMENT ===" | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+          lscpu | grep -E 'Model name|Flags' | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+          rustc +1.97.0 -vV | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
+
       - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -106,17 +123,10 @@ jobs:
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
           : > "$GITHUB_WORKSPACE/snark-preflight.log"
-          # The setup-produced worker is compiled for the hosted CPU.  On some
-          # runner classes that binary has produced verifier-invalid proofs.
-          # Build a conservative baseline worker from the untouched source and
-          # preflight that exact binary; the paired gate below will use the same
-          # conservative baseline so validity and measurement refer to one build.
-          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v3" \
-            cargo +1.97.0 build --locked --offline --profile challenge \
-            --manifest-path Cargo.toml --target-dir target/stable-baseline -p flock-benchmark-worker
-          BASE="$PWD/target/stable-baseline/challenge/flock-benchmark-worker"
+          # Diagnose the authoritative worker produced by challenge setup.
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$BASE"
-          sha256sum "$BASE" | tee "$GITHUB_WORKSPACE/snark-stable-baseline.sha256"
+          sha256sum "$BASE" | tee "$GITHUB_WORKSPACE/snark-setup-baseline.sha256"
 
           pass=0
           for attempt in 1 2 3; do
@@ -184,7 +194,7 @@ jobs:
           # Use the exact worker produced by the challenge setup as the baseline.
           # Rebuilding it with a different RUSTFLAGS target changes the binary and has
           # already produced verifier-invalid proofs on some hosted runners.
-          BASE="$PWD/target/stable-baseline/challenge/flock-benchmark-worker"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
           sha256sum "$BASE" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           seeds="0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615"
@@ -301,5 +311,7 @@ jobs:
             snark-ab.log
             snark-ab.tsv
             snark-runner-env.txt
+            snark-divergence.log
+            snark-setup-baseline.sha256
             yukon-snark-after.json
           if-no-files-found: ignore
