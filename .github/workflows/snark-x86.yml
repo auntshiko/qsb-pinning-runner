@@ -54,6 +54,21 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
+      - name: Require verifier-compatible x86 host
+        run: |
+          set -euo pipefail
+          model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+          echo "Benchmark host: $model"
+          case "$model" in
+            *"XEON"*"8573C"*|*"Xeon"*"8573C"*)
+              echo "HOST_COMPAT_PASS: known verifier-compatible Intel Xeon 8573C"
+              ;;
+            *)
+              echo "::error::Unsupported hosted CPU for trusted SNARK baseline: $model. Known-valid reference is Intel Xeon Platinum 8573C; candidate was not built or measured."
+              exit 86
+              ;;
+          esac
+
       - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
