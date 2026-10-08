@@ -74,7 +74,7 @@ jobs:
           echo "TRUSTED_BASELINE_EXIT=$rc" | tee "$GITHUB_WORKSPACE/profile-status.txt"
           tail -45 "$GITHUB_WORKSPACE/profile-execution.log"
           if [ "$rc" -ne 0 ]; then
-            echo "Verifier failed; no performance claims. Diagnostic artifact retained."
+            echo "Baseline verifier failure recorded; diagnostics retained."
           fi
       - name: Upload profile diagnostics
         if: always()
