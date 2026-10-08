@@ -86,6 +86,8 @@ jobs:
           set +e
           cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-tests.log" 2>&1
           rc=$?
+          echo "=== NATIVE CPU LAST TEST EXECUTED ==="
+          tail -90 "$GITHUB_WORKSPACE/zerocheck-unit-results/native-tests.log" || true
           echo "=== NATIVE CPU ZEROCHECK TEST SUMMARY ==="
           grep -E 'running [0-9]+ tests|test result:|FAILED|error:|panicked at' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-tests.log" | tail -35 || true
           echo "NATIVE_TEST_EXIT=$rc"
