@@ -88,13 +88,13 @@ jobs:
           lscpu | grep -E 'Model name|Flags' | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
           rustc +1.97.0 -vV | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
 
-      - name: Cross-environment seed-0 proof capture
+      - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
           . "${CARGO_HOME:-$HOME/.cargo}/env"
-          cp benchmark-tools/harness/src/main.rs /tmp/flock-crossenv-harness-main.rs
-          trap 'cp /tmp/flock-crossenv-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
+          cp benchmark-tools/harness/src/main.rs /tmp/flock-preflight-harness-main.rs
+          trap 'cp /tmp/flock-preflight-harness-main.rs benchmark-tools/harness/src/main.rs' EXIT
           python3 - <<'PY'
           from pathlib import Path
           p=Path("benchmark-tools/harness/src/main.rs")
@@ -117,46 +117,42 @@ jobs:
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
-            --manifest-path Cargo.toml --target-dir target/crossenv-harness -p flock-benchmark-harness
-          HARNESS="$PWD/target/crossenv-harness/challenge/flock_benchmark_harness"
+            --manifest-path Cargo.toml --target-dir target/preflight-harness -p flock-benchmark-harness
+          HARNESS="$PWD/target/preflight-harness/challenge/flock_benchmark_harness"
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
-          out="$PWD/benchmark-results/crossenv-seed0"
-          rm -rf "$out"; mkdir -p "$out"; rm -f score.json
-          {
-            echo "source_sha=$(git rev-parse HEAD)"
-            echo "worker_sha256=$(sha256sum "$BASE" | awk '{print $1}')"
-            echo "cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
-            rustc +1.97.0 -vV
-          } | tee "$GITHUB_WORKSPACE/snark-crossenv-env.txt"
-          set +e
-          FLOCK_DIAG_SEED=0 "$HARNESS" "$BASE" "$out" "$PWD/score.json" "$out/result.md" 18 1 0 1 2>&1 | tee "$out/run.log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          echo "trusted_rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-crossenv-env.txt"
-          find "$out" -type f -print0 | sort -z | while IFS= read -r -d '' f; do
-            rel="${f#$out/}"; printf '%s  %s  %s bytes\n' "$(sha256sum "$f" | awk '{print $1}')" "$rel" "$(wc -c < "$f")"
-          done | tee "$GITHUB_WORKSPACE/snark-crossenv-sha256.txt"
-          mkdir -p "$GITHUB_WORKSPACE/snark-crossenv-capture"
-          cp -a "$out/." "$GITHUB_WORKSPACE/snark-crossenv-capture/"
-          find "$GITHUB_WORKSPACE/snark-crossenv-capture" -type f -printf '%P %s bytes\n' | sort | tee "$GITHUB_WORKSPACE/snark-crossenv-files.txt"
-          # Capture the worker's serialized proof at its actual serialization site.
-          # A worker may emit proof.bin or a different extension; retain all binary
-          # files found in the scratch tree rather than assuming *.proof.
-          find "$out" -type f -printf '%p %s bytes\n' | sort
-          proof=$(find "$out" -type f -name '*.proof' | head -1 || true)
-          if [ -n "$proof" ]; then
-            cp "$proof" "$GITHUB_WORKSPACE/seed0.proof"
-            python3 - "$proof" "$GITHUB_WORKSPACE/snark-proof-chunks.sha256" <<'PY'
-          import hashlib, pathlib, sys
-          p=pathlib.Path(sys.argv[1]).read_bytes()
-          with open(sys.argv[2],"w") as o:
-              for off in range(0,len(p),4096):
-                  b=p[off:off+4096]
-                  o.write(f"{off:08x} {len(b):04d} {hashlib.sha256(b).hexdigest()}\n")
+          test -x "$HARNESS"; test -x "$BASE"
+          : > "$GITHUB_WORKSPACE/snark-preflight.log"
+          pass=0
+          for attempt in 1 2 3; do
+            scratch="$PWD/benchmark-results/preflight-$attempt"
+            rm -rf "$scratch"
+            mkdir -p "$scratch"
+            rm -f score.json
+            echo "=== PREFLIGHT attempt=$attempt/3 baseline seed=0 threads=1 ===" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            set +e
+            FLOCK_DIAG_SEED=0 "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/preflight-$attempt.md" 18 1 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            if [ "$rc" -eq 0 ] && python3 - <<'PY'
+          import json
+          d=json.load(open("score.json"))
+          assert isinstance(d.get("score"),(int,float)) and d["score"] > 0
           PY
+            then
+              pass=$((pass+1))
+              echo "PREFLIGHT_ATTEMPT_PASS attempt=$attempt" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            else
+              echo "PREFLIGHT_ATTEMPT_FAIL attempt=$attempt rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            fi
+          done
+          echo "PREFLIGHT_SUMMARY passes=$pass/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+          if [ "$pass" -lt 3 ]; then
+            echo "::error::Trusted baseline is not deterministic on this hosted runner ($pass/3 valid). Candidate was not built or measured."
+            exit 86
           fi
-          echo "::error::Cross-environment proof captured (trusted_rc=$rc). Candidate intentionally not built or measured."
-          exit 86
+          echo "PREFLIGHT_PASS trusted baseline verified 3/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
 
       - name: Reliable single-thread paired A/B gate
         working-directory: ${{ env.SNARK_ROOT }}
@@ -230,7 +226,7 @@ jobs:
           if s.count(old) != 1: raise SystemExit("unexpected lincheck CSC selector occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
-          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v3" \
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
           CAND="$PWD/target/ab-candidate/challenge/flock-benchmark-worker"
