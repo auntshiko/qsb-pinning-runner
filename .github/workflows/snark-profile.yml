@@ -76,6 +76,10 @@ jobs:
           rc=$?
           set -e
           echo "TRUSTED_BASELINE_EXIT=$rc" | tee "$GITHUB_WORKSPACE/profile-status.txt"
+          echo "=== PROVER STAGE TIMING SIGNALS ===" | tee "$GITHUB_WORKSPACE/profile-stage-results.txt"
+          grep -Ei 'witness|commit|zerocheck|lincheck|ring.switch|prover|verify|elapsed|seconds|timing' "$GITHUB_WORKSPACE/profile-execution.log" | tail -90 >> "$GITHUB_WORKSPACE/profile-stage-results.txt" || true
+          echo "=== RESOURCE USAGE ==="
+          cat "$GITHUB_WORKSPACE/profile-resource-usage.txt" | tail -28
           tail -45 "$GITHUB_WORKSPACE/profile-execution.log"
           if [ "$rc" -ne 0 ]; then
             echo "Baseline verifier failure recorded; diagnostics retained."
