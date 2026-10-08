@@ -111,6 +111,13 @@ jobs:
           export CARGO_TARGET_DIR="$PWD/target/zerocheck-native-tests"
           export RUSTFLAGS="-C target-cpu=native"
           export RUST_MIN_STACK=33554432
+          echo "=== NATIVE CPU FEATURES ==="
+          lscpu | grep -E 'Model name:|Flags:|Architecture:' | cut -c1-350 || true
+          echo "=== COMPILED B-COMPLEMENT TEST INVENTORY ==="
+          cargo +1.97.0 test --locked --offline -p flock-core -- --list > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt" 2>&1
+          grep -E 'bcomplement|image_variants_and_residual' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt" | head -35 || true
+          echo "=== B-COMPLEMENT CONDITIONAL COMPILATION ==="
+          grep -n -B 10 -A 6 -E 'mod x86_64_bcomplement|cfg\(|image_variants_and_residual_bcomplement_match_incumbent' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels.rs crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/mod.rs crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs 2>/dev/null | tail -90 || true
           set +e
           cargo +1.97.0 test --locked --offline -p flock-core image_variants_and_residual_bcomplement_match_incumbent -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
           rc=$?
