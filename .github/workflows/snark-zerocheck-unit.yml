@@ -98,7 +98,7 @@ jobs:
               raise SystemExit("No executed passing portable Zerocheck tests; refusing false green")
           print(f"PORTABLE_ZEROCHECK_PASS={total}")
           with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as out:
-              out.write(f"PORTABLE_ZEROCHECK_PASS={total} (non-AVX-512 only)\\n")
+              out.write(f"PORTABLE_ZEROCHECK_PASS={total} (non-AVX-512 only)\n")
           PY
       - name: Capture b-complement stack allocation source
         working-directory: ${{ env.SNARK_ROOT }}
@@ -208,6 +208,7 @@ jobs:
             echo "::error::Targeted b-complement test did not pass exactly once."
             exit 89
           fi
+          echo "B_COMPLEMENT_RESULT=PASS_NATIVE" >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
       - name: Compare native x86 Zerocheck unit behavior
         working-directory: ${{ env.SNARK_ROOT }}
