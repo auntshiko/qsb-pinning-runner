@@ -110,6 +110,27 @@ jobs:
             echo "Baseline verifier failure recorded; diagnostics retained."
             exit 1
           fi
+      - name: Fixed-target baseline comparison
+        if: always()
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          echo "=== FIXED TARGET EXPERIMENT ===" | tee "$GITHUB_WORKSPACE/profile-fixed-target.txt"
+          echo "Original challenge worker retained unchanged; portable worker built separately." | tee -a "$GITHUB_WORKSPACE/profile-fixed-target.txt"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=x86-64-v2" cargo +1.97.0 build --locked --offline --profile challenge --manifest-path Cargo.toml --target-dir target/profile-portable -p flock-benchmark-worker >> "$GITHUB_WORKSPACE/profile-fixed-build.log" 2>&1
+          PORTABLE="$PWD/target/profile-portable/challenge/flock-benchmark-worker"
+          HARNESS="$PWD/target/profile-harness/challenge/flock_benchmark_harness"
+          test -x "$PORTABLE"
+          sha256sum "$PORTABLE" | tee -a "$GITHUB_WORKSPACE/profile-fixed-target.txt"
+          mkdir -p benchmark-results/fixed-target
+          set +e
+          FLOCK_DIAG_SEED=0 "$HARNESS" "$PORTABLE" "$PWD/benchmark-results/fixed-target" "$PWD/score.json" "$GITHUB_WORKSPACE/profile-fixed-report.md" 18 1 0 1 > "$GITHUB_WORKSPACE/profile-fixed-execution.log" 2>&1
+          rc=$?
+          set -e
+          echo "FIXED_TARGET_EXIT=$rc" | tee -a "$GITHUB_WORKSPACE/profile-fixed-target.txt"
+          grep -E 'verified=|trusted verifier rejected|score=' "$GITHUB_WORKSPACE/profile-fixed-execution.log" | tail -12 | tee -a "$GITHUB_WORKSPACE/profile-fixed-target.txt" || true
+          echo "Diagnostic only: no Yukon submission."
       - name: Collect software timing references
         if: always()
         working-directory: ${{ env.SNARK_ROOT }}
