@@ -74,6 +74,23 @@ jobs:
           grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:|error\[' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
           echo "UNIT_TEST_EXIT=$rc"
           exit "$rc"
+      - name: Isolate native b-complement kernel with larger stack
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -uo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-unit-results"
+          export RAYON_NUM_THREADS=1 RUST_TEST_THREADS=1 CARGO_INCREMENTAL=0
+          export CARGO_TARGET_DIR="$PWD/target/zerocheck-native-tests"
+          export RUSTFLAGS="-C target-cpu=native"
+          export RUST_MIN_STACK=33554432
+          set +e
+          cargo +1.97.0 test --locked --offline -p flock-core zerocheck::univariate_skip_optimized::kernels::x86_64_bcomplement::tests::image_variants_and_residual_bcomplement_match_incumbent -- --exact --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
+          rc=$?
+          echo "=== ISOLATED NATIVE B-COMPLEMENT TEST ==="
+          tail -45 "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" || true
+          echo "NATIVE_BCOMPLEMENT_EXIT=$rc"
+          exit "$rc"
       - name: Compare native x86 Zerocheck unit behavior
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
