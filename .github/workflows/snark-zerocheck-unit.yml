@@ -110,7 +110,12 @@ jobs:
           export RAYON_NUM_THREADS=1 RUST_TEST_THREADS=1 CARGO_INCREMENTAL=0
           export CARGO_TARGET_DIR="$PWD/target/zerocheck-native-tests"
           export RUSTFLAGS="-C target-cpu=native"
-          export RUST_MIN_STACK=33554432
+          export RUST_MIN_STACK=134217728
+          echo "=== TEST STACK LIMIT ==="
+          ulimit -s || true
+          echo "RUST_MIN_STACK=$RUST_MIN_STACK"
+          echo "=== TEST SOURCE LOCAL ARRAY FOOTPRINT ==="
+          sed -n '855,940p' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs | grep -nE 'let |const |Box::|vec!|\[F128;|\[u8;' | head -55 || true
           echo "=== NATIVE CPU FEATURES ==="
           lscpu | grep -E 'Model name:|Flags:|Architecture:' | cut -c1-350 || true
           echo "=== RUSTC NATIVE FEATURE CFG ==="
