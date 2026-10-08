@@ -45,7 +45,10 @@ jobs:
           export RUSTFLAGS="-C target-cpu=x86-64"
           cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" 2>&1
           rc=$?
-          grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
+          echo "=== UNIT TEST FAILURE DIAGNOSTICS ==="
+          tail -100 "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" || true
+          echo "=== SUMMARY ==="
+          grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:|error\[' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
           echo "UNIT_TEST_EXIT=$rc"
           exit "$rc"
       - name: Upload isolated test evidence
