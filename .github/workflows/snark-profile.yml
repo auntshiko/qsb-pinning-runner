@@ -53,6 +53,19 @@ jobs:
           grep -RInE 'witness_s|commit_s|zerocheck_s|lincheck_s|proof.*timing|stage.*timing' crates/flock-prover/src/r1cs_hashes/blake3.rs | head -140 >> "$GITHUB_WORKSPACE/profile-stage-timing.txt" || true
           grep -RInE 'zerocheck_s|lincheck_s|witness_s|commit_s|ring.switch|Instant::now|elapsed\(' crates/flock-prover/src/r1cs_hashes/blake3.rs | head -160 > "$GITHUB_WORKSPACE/profile-timing-hooks.txt" || true
           cp crates/flock-core/src/zerocheck.rs "$GITHUB_WORKSPACE/profile-zerocheck.rs"
+      - name: Capture determinism and parallelism configuration
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          {
+            echo "=== CHALLENGE REVISION ==="
+            git rev-parse HEAD
+            echo "=== RUNTIME PARALLELISM ==="
+            env | grep -E '^(RAYON_|OMP_|RUSTFLAGS|CARGO_|FLOCK_)' | sed -E 's/(TOKEN|KEY|SECRET|PASSWORD)=[^ ]+/\\1=[REDACTED]/g' || true
+            echo "=== PROVER PARALLELISM AND RANDOMNESS REFERENCES ==="
+            grep -RInE 'par_iter|into_par_iter|thread_rng|OsRng|/dev/urandom|available_parallelism|RAYON_NUM_THREADS|FLOCK_NO_ZC_LOOKAHEAD' crates/flock-core/src/zerocheck.rs crates/flock-prover/src/r1cs_hashes/blake3.rs | head -120 || true
+          } > "$GITHUB_WORKSPACE/profile-determinism.txt"
+          echo "Determinism configuration captured"
       - name: Profile one trusted baseline proof
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
