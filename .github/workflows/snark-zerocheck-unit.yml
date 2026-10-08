@@ -204,7 +204,7 @@ jobs:
             echo "B_COMPLEMENT_RESULT=SKIPPED_UNSUPPORTED_CPU" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if ! grep -Eq 'test result: ok\\. 1 passed; 0 failed' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log"; then
+          if ! grep -Fq 'test result: ok. 1 passed; 0 failed' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log"; then
             echo "::error::Targeted b-complement test did not pass exactly once."
             exit 89
           fi
