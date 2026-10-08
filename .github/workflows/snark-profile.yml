@@ -75,6 +75,7 @@ jobs:
           tail -45 "$GITHUB_WORKSPACE/profile-execution.log"
           if [ "$rc" -ne 0 ]; then
             echo "Baseline verifier failure recorded; diagnostics retained."
+            exit 1
           fi
       - name: Upload profile diagnostics
         if: always()
