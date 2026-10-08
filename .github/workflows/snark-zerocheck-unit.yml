@@ -101,6 +101,31 @@ jobs:
               if any(x in lines[n] for x in ("[F128;", "Box::new", "vec![", "with_capacity", "image_variants", "let mut", "const ")):
                   print(f"{n+1}: {lines[n][:180]}")
           PY
+      - name: Instrument individual b-complement variants in test-only checkout
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs")
+          s=p.read_text()
+          anchor='''                        residual_variant!(2, false);'''
+          if s.count(anchor)!=1: raise SystemExit("Expected residual variant test call absent")
+          for i in (2,4,8):
+              for bc in ('false','true'):
+                  old=f'                        residual_variant!({i}, {bc});'
+                  new=f'                        eprintln!("BC_CASE residual images={i} complement={bc} blk={{blk}} layout={{layout}} round={{round}}");\n'+old
+                  if s.count(old)!=1: raise SystemExit(f"Expected exactly one {old}")
+                  s=s.replace(old,new,1)
+          old='''                                    for images in [4u8, 8] {'''
+          new='''                                    eprintln!("BC_CASE const reference blk={blk} layout={layout} round={round}");
+                                    for images in [4u8, 8] {
+                                        eprintln!("BC_CASE const images={images} blk={blk} layout={layout} round={round}");'''
+          if s.count(old)!=1: raise SystemExit("Expected exactly one const image loop")
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          print("Added per-case diagnostic markers in test-only source; production benchmark unchanged.")
+          PY
       - name: Isolate native b-complement kernel with larger stack
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -142,7 +167,7 @@ jobs:
           cargo +1.97.0 test --locked --offline -p flock-core image_variants_and_residual_bcomplement_match_incumbent -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
           rc=$?
           echo "=== ISOLATED NATIVE B-COMPLEMENT TEST ==="
-          tail -45 "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" || true
+          tail -100 "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" || true
           echo "NATIVE_BCOMPLEMENT_EXIT=$rc"
           if grep -Eq 'running 0 tests|0 passed; 0 failed' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log"; then
             if grep -q 'image_variants_and_residual_bcomplement_match_incumbent: test' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt"; then
