@@ -74,6 +74,33 @@ jobs:
           grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:|error\[' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
           echo "UNIT_TEST_EXIT=$rc"
           exit "$rc"
+      - name: Capture b-complement stack allocation source
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-unit-results"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs")
+          out = Path(__import__("os").environ["GITHUB_WORKSPACE"]) / "zerocheck-unit-results/bcomplement-stack-source.txt"
+          if not p.exists():
+              candidates = list(Path("crates/flock-core/src").rglob("*bcomplement*.rs"))
+              out.write_text("Expected source missing. Candidates: " + repr([str(x) for x in candidates]))
+              raise SystemExit("B-complement source location changed; inspect artifact")
+          lines = p.read_text().splitlines()
+          matches = [i for i, line in enumerate(lines) if "image_variants_and_residual_bcomplement_match_incumbent" in line]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected one test declaration, found {len(matches)}")
+          i = matches[0]
+          start = max(0, i-35)
+          end = min(len(lines), i+230)
+          out.write_text("\\n".join(f"{n+1}: {lines[n]}" for n in range(start,end))+"\\n")
+          print(f"Captured test source {p}:{start+1}-{end} to artifact")
+          print("=== STACK-RELATED SOURCE ===")
+          for n in range(start,end):
+              if any(x in lines[n] for x in ("[F128;", "Box::new", "vec![", "with_capacity", "image_variants", "let mut", "const ")):
+                  print(f"{n+1}: {lines[n][:180]}")
+          PY
       - name: Isolate native b-complement kernel with larger stack
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
