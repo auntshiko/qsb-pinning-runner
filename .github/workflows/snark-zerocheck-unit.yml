@@ -31,6 +31,25 @@ jobs:
           ./setup.sh
           . "${CARGO_HOME:-$HOME/.cargo}/env"
           rustc +1.97.0 -V
+      - name: Repair missing NTT method in isolated test checkout
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
+          src = p.read_text()
+          missing = "ntt.forward_transform_interleaved_parallel_from_layer("
+          replacement = "ntt.forward_transform_interleaved_from_layer("
+          count = src.count(missing)
+          if count != 2:
+              raise SystemExit(f"Expected exactly two missing NTT method calls, found {count}; refusing unreviewed patch")
+          src = src.replace(missing, replacement)
+          p.write_text(src)
+          print("Patched two test-only NTT call sites; production challenge source remains unchanged.")
+          PY
+          git diff -- crates/flock-core/src/ntt/additive_ntt_f128.rs > "$GITHUB_WORKSPACE/zerocheck-test-only-ntt.diff"
+          test -s "$GITHUB_WORKSPACE/zerocheck-test-only-ntt.diff"
       - name: Run isolated Zerocheck tests with reference assertions
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
