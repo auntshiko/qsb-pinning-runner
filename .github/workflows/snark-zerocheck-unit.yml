@@ -127,6 +127,13 @@ jobs:
           grep -E 'bcomplement|image_variants_and_residual' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt" | head -35 || true
           echo "=== B-COMPLEMENT CONDITIONAL COMPILATION ==="
           grep -n -B 10 -A 6 -E 'mod x86_64_bcomplement|cfg\(|image_variants_and_residual_bcomplement_match_incumbent' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels.rs crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/mod.rs crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs 2>/dev/null | tail -90 || true
+          if ! grep -q 'image_variants_and_residual_bcomplement_match_incumbent: test' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt"; then
+            echo "::notice::SKIPPED_UNSUPPORTED_CPU: b-complement kernel test not compiled on this runner."
+            echo "B_COMPLEMENT_RESULT=SKIPPED_UNSUPPORTED_CPU" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "=== COMPATIBLE CPU: RUNNING TARGETED TEST ==="
+          echo "B_COMPLEMENT_CPU=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" >> "$GITHUB_STEP_SUMMARY"
           set +e
           cargo +1.97.0 test --locked --offline -p flock-core image_variants_and_residual_bcomplement_match_incumbent -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-bcomplement.log" 2>&1
           rc=$?
