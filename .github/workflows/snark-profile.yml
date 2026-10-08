@@ -35,6 +35,18 @@ jobs:
           set -euo pipefail
           git rev-parse HEAD | tee "$GITHUB_WORKSPACE/profile-revision.txt"
           lscpu | grep -E 'Model name|Architecture|Vendor ID|Flags' | tee "$GITHUB_WORKSPACE/profile-cpu.txt"
+          echo "=== RUNTIME CPU FEATURE PROBE ===" | tee "$GITHUB_WORKSPACE/profile-runtime-cpu.txt"
+          python3 - <<'PY' | tee -a "$GITHUB_WORKSPACE/profile-runtime-cpu.txt"
+          import platform
+          print("machine:", platform.machine())
+          for line in open("/proc/cpuinfo"):
+              if line.startswith(("model name", "flags", "vendor_id")):
+                  print(line.strip())
+                  if line.startswith("flags"): break
+          PY
+          echo "=== BASELINE BUILD FINGERPRINT ===" | tee "$GITHUB_WORKSPACE/profile-binary-fingerprint.txt"
+          sha256sum target/challenge-candidate/challenge/flock-benchmark-worker | tee -a "$GITHUB_WORKSPACE/profile-binary-fingerprint.txt"
+          grep -nE 'RUSTFLAGS|target-cpu|cargo .*build|flock-benchmark-worker' setup.sh | head -70 | tee -a "$GITHUB_WORKSPACE/profile-binary-fingerprint.txt" || true
           echo "=== CPU / BINARY DISPATCH REFERENCES ===" > "$GITHUB_WORKSPACE/profile-dispatch.txt"
           grep -RInE 'is_x86_feature_detected!|target_feature|target_cpu|target-cpu|avx2|pclmulqdq|vpclmulqdq|gfni' crates/flock-core/src crates/flock-prover/src | head -180 >> "$GITHUB_WORKSPACE/profile-dispatch.txt" || true
           echo "=== PROVER TIMING OUTPUT REFERENCES ===" > "$GITHUB_WORKSPACE/profile-stage-timing.txt"
