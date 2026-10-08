@@ -264,18 +264,20 @@ jobs:
           PY
           done
 
-          echo "=== LOOKAHEAD SOURCE INSPECTION ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-          grep -n -C 24 'FLOCK_NO_ZC_LOOKAHEAD' crates/flock-core/src/zerocheck.rs | head -180 | tee "$GITHUB_WORKSPACE/snark-lookahead-console.txt" || true
-          echo "=== INSPECT ORIGINAL ZEROCHECK LOOKAHEAD HOT PATH ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-          {
-            echo "=== LOOKAHEAD REFERENCES ==="
-            grep -n -C 18 'FLOCK_NO_ZC_LOOKAHEAD' crates/flock-core/src/zerocheck.rs || true
-            echo "=== LOOKAHEAD FUNCTIONS AND ALLOCATIONS ==="
-            grep -nE -C 4 'lookahead|Lookahead|with_capacity|collect\\(|\.clone\\(|par_iter|par_chunks|Mutex|RwLock' crates/flock-core/src/zerocheck.rs | head -420 || true
-            echo "=== SOURCE FINGERPRINT ==="
-            sha256sum crates/flock-core/src/zerocheck.rs
-          } > "$GITHUB_WORKSPACE/snark-lookahead-source.txt"
-          echo "Candidate unchanged: original Zerocheck lookahead retained." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== CANDIDATE: isolate packed-fold non-temporal output stores ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/zerocheck/multilinear.rs")
+          s=p.read_text()
+          needle="let nt_out = kernels::x86_64::zc_fold_nt_enabled()"
+          if s.count(needle)!=1:
+              raise SystemExit(f"Expected exactly one packed-fold NT selector; found {s.count(needle)}")
+          s=s.replace(needle,"let nt_out = false && kernels::x86_64::zc_fold_nt_enabled()",1)
+          p.write_text(s)
+          print("Candidate changes only packed-fold non-temporal store selection; lookahead and arithmetic retained")
+          PY
+          git diff -- crates/flock-core/src/zerocheck/multilinear.rs > "$GITHUB_WORKSPACE/snark-candidate.diff"
+          test -s "$GITHUB_WORKSPACE/snark-candidate.diff"
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
