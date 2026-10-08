@@ -181,15 +181,15 @@ jobs:
           PY
           done
 
-          echo "=== BUILD COMBINED CANDIDATE: RECYCLE_MIN 24K + baseline ring-switch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD ISOLATED CANDIDATE: disable NTT deep-pass L1 prefetch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-prover/src/recycle_alloc.rs")
+          p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
           s=p.read_text()
-          old='const RECYCLE_MIN: usize = 32 * 1024;'
-          new='const RECYCLE_MIN: usize = 24 * 1024;'
-          if old not in s: raise SystemExit("recycle allocator threshold source mismatch")
-          if s.count(old) != 1: raise SystemExit("unexpected RECYCLE_MIN occurrence count")
+          old='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_some() {'
+          new='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_none() {'
+          if old not in s: raise SystemExit("NTT deep-prefetch selector source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected NTT deep-prefetch selector occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
