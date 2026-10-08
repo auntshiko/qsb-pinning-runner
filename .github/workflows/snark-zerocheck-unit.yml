@@ -6,7 +6,7 @@ permissions:
 jobs:
   zerocheck-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
     steps:
@@ -73,6 +73,22 @@ jobs:
           echo "=== SUMMARY ==="
           grep -E 'running [0-9]+ tests|test result:|FAILED|panicked at|error:|error\[' "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" | tail -35 || true
           echo "UNIT_TEST_EXIT=$rc"
+          exit "$rc"
+      - name: Compare native x86 Zerocheck unit behavior
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -uo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          mkdir -p "$GITHUB_WORKSPACE/zerocheck-unit-results"
+          export RAYON_NUM_THREADS=1 RUST_TEST_THREADS=1 CARGO_INCREMENTAL=0
+          export CARGO_TARGET_DIR="$PWD/target/zerocheck-native-tests"
+          export RUSTFLAGS="-C target-cpu=native"
+          set +e
+          cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/native-tests.log" 2>&1
+          rc=$?
+          echo "=== NATIVE CPU ZEROCHECK TEST SUMMARY ==="
+          grep -E 'running [0-9]+ tests|test result:|FAILED|error:|panicked at' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-tests.log" | tail -35 || true
+          echo "NATIVE_TEST_EXIT=$rc"
           exit "$rc"
       - name: Upload isolated test evidence
         if: always()
