@@ -199,15 +199,15 @@ jobs:
           PY
           done
 
-          echo "=== BUILD COMBINED NTT CANDIDATE: disable deep-pass L1 prefetch + generic deep-row dispatch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD ISOLATED CANDIDATE: lincheck u32 CSC rows ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
-          p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
+          p=Path("crates/flock-core/src/lincheck.rs")
           s=p.read_text()
-          old='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_some() {'
-          new='if std::env::var_os("FLOCK_NO_NTT_DEEP_PF").is_none() {'
-          if old not in s: raise SystemExit("NTT deep-prefetch selector source mismatch")
-          if s.count(old) != 1: raise SystemExit("unexpected NTT deep-prefetch selector occurrence count")
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_CSC_U16").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_LC_CSC_U16").is_some());'
+          if old not in s: raise SystemExit("lincheck CSC selector source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected lincheck CSC selector occurrence count")
           p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
