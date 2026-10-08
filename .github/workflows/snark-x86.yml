@@ -238,7 +238,15 @@ jobs:
           p=Path("crates/flock-core/src/zerocheck.rs")
           s=p.read_text()
           import re
-          matches=list(re.finditer(r'(?m)^.*FLOCK_NO_ZC_LOOKAHEAD.*
+          selector='FLOCK_NO_ZC_LOOKAHEAD'
+          lines=s.splitlines(keepends=True)
+          matches=[i for i,line in enumerate(lines) if selector in line]
+          if len(matches)!=1: raise SystemExit(f"expected one lookahead selector; found {len(matches)}")
+          i=matches[0]
+          if '.is_none()' not in lines[i]: raise SystemExit("lookahead selector is not enabled by default")
+          lines[i]=lines[i].replace('.is_none()', '.is_some()', 1)
+          p.write_text(''.join(lines))
+          PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
