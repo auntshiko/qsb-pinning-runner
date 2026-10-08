@@ -54,18 +54,20 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
-      - name: Require verifier-compatible x86 host
+      - name: Record x86 host class
         run: |
           set -euo pipefail
           model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
           echo "Benchmark host: $model"
+          # CPU model is diagnostic only. Historical runs show both pass and fail
+          # on AMD classes, so cryptographic 3/3 preflight—not model name—is the
+          # authoritative compatibility gate.
           case "$model" in
             *"XEON"*"8573C"*|*"Xeon"*"8573C"*)
-              echo "HOST_COMPAT_PASS: known verifier-compatible Intel Xeon 8573C"
+              echo "HOST_CLASS=known-valid-reference"
               ;;
             *)
-              echo "::error::Unsupported hosted CPU for trusted SNARK baseline: $model. Known-valid reference is Intel Xeon Platinum 8573C; candidate was not built or measured."
-              exit 86
+              echo "HOST_CLASS=unclassified; requiring strict 3/3 trusted preflight"
               ;;
           esac
 
