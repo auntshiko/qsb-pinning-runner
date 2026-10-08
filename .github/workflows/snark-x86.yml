@@ -59,9 +59,16 @@ jobs:
           set -euo pipefail
           model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
           echo "Benchmark host: $model"
-          # CPU model is diagnostic only. Historical runs show both pass and fail
-          # on AMD classes, so cryptographic 3/3 preflight—not model name—is the
-          # authoritative compatibility gate.
+          # Repeated EPYC 7763 hosted runs have rejected the unchanged trusted
+          # baseline with Zerocheck(SumcheckFinalFailed). Do not spend minutes
+          # building a harness on this known-problematic host class.
+          # This is an infrastructure skip, NOT a correctness or performance pass.
+          if [[ "$model" == *"EPYC 7763"* ]]; then
+            echo "::notice::HOST_SKIP_KNOWN_BASELINE_FAILURE: AMD EPYC 7763; no candidate measured."
+            exit 86
+          fi
+          # All other hosts still require strict trusted 3/3 proof preflight.
+          # CPU identification alone never counts as a correctness pass.
           case "$model" in
             *"XEON"*"8573C"*|*"Xeon"*"8573C"*)
               echo "HOST_CLASS=known-valid-reference"
