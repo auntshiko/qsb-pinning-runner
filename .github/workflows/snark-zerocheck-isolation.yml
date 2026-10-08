@@ -35,6 +35,8 @@ jobs:
           grep -RIn -C 7 --include='*.rs' 'SumcheckFinalFailed' crates/flock-core/src > "$GITHUB_WORKSPACE/zerocheck-isolation/failure-sites.txt" || true
           grep -RIn -C 4 --include='*.rs' 'FLOCK_NO_ZC_LOOKAHEAD\|zc_fold_nt_enabled' crates/flock-core/src > "$GITHUB_WORKSPACE/zerocheck-isolation/dispatch-sites.txt" || true
           grep -RIn -C 3 --include='*.rs' 'FLOCK_DIAG_SEED\|fn fresh_seed' benchmark-tools > "$GITHUB_WORKSPACE/zerocheck-isolation/seed-sites.txt" || true
+          grep -RIn -C 8 --include='*.rs' 'fresh_seed()\|FLOCK_DIAG_SEED\|seed_override\|worker readiness timed out' benchmark-tools > "$GITHUB_WORKSPACE/zerocheck-isolation/harness-seed-flow.txt" || true
+          cp benchmark-tools/harness/src/main.rs "$GITHUB_WORKSPACE/zerocheck-isolation/harness-main.rs"
           echo "Source-only correctness inspection complete; no proof executed."
       - name: Upload correctness context
         if: always()
