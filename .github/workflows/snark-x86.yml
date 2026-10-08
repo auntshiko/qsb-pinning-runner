@@ -194,6 +194,9 @@ jobs:
               echo "PREFLIGHT_ATTEMPT_PASS attempt=$attempt" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
             else
               echo "PREFLIGHT_ATTEMPT_FAIL attempt=$attempt rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+              echo "PREFLIGHT_SUMMARY passes=$pass/$attempt (early stop)" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+              echo "::error::Trusted baseline verification failed at attempt $attempt; aborting before further costly proofs or candidate build."
+              exit 86
             fi
           done
           echo "PREFLIGHT_SUMMARY passes=$pass/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
