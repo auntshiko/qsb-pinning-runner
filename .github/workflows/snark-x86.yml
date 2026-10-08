@@ -105,6 +105,25 @@ jobs:
           } > "$GITHUB_WORKSPACE/snark-proof-source-inspection.txt"
           echo "Proof serialization/verifier source captured in artifact."
 
+      - name: Record exact baseline build and arithmetic dispatch
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          {
+            echo "=== BASELINE BINARY ==="
+            sha256sum target/challenge-candidate/challenge/flock-benchmark-worker
+            file target/challenge-candidate/challenge/flock-benchmark-worker
+            echo "=== BUILD CONFIG ==="
+            env | grep -E '^(RUSTFLAGS|CARGO_ENCODED_RUSTFLAGS|RUSTC_WRAPPER|CARGO_BUILD_TARGET|RAYON_NUM_THREADS|FLOCK_)=' | sort || true
+            echo "=== CPU FLAGS ==="
+            lscpu | grep -E 'Model name|Flags|Architecture|Vendor ID'
+            echo "=== FEATURE DISPATCH SITES ==="
+            grep -RIn --include='*.rs' -E 'is_x86_feature_detected!|target_feature|cfg!\\(target_feature|mulx|adx|avx512|avx2|pclmul' crates/flock-core crates/flock-prover | head -160 || true
+            echo "=== SETUP BUILD COMMANDS ==="
+            grep -nE 'RUSTFLAGS|target-cpu|cargo .*build|flock-benchmark-worker' setup.sh || true
+          } > "$GITHUB_WORKSPACE/snark-baseline-build-audit.txt"
+          echo "Baseline build and dispatch audit captured."
+
       - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -326,6 +345,7 @@ jobs:
             snark-ab.tsv
             snark-runner-env.txt
             snark-proof-source-inspection.txt
+            snark-baseline-build-audit.txt
             snark-divergence.log
             snark-setup-baseline.sha256
             snark-crossenv-env.txt
