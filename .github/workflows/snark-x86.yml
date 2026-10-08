@@ -306,14 +306,20 @@ jobs:
           print(open(sys.argv[2]).read())
           PY
           echo "PROFILE_ONLY_COMPLETE: 6 verified baseline trials; no candidate measured; Yukon submission disabled." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-      - name: Record available in-process timing hooks
+      - name: Locate Zerocheck timing diagnostics
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          echo "TIMING_HOOK_DISCOVERY_ONLY; no candidate measured" > "$GITHUB_WORKSPACE/snark-timing-hooks.txt"
-          rg -n 'tracing::(info_span|debug_span|instrument)|\#\[instrument|Instant::now\(|elapsed\(\)|zerocheck::prove|commit.*prove' crates/flock-prover/src crates/flock-core/src \
-            | head -n 160 >> "$GITHUB_WORKSPACE/snark-timing-hooks.txt" || true
-          echo "Existing hooks are inventory only; no per-phase duration claims." >> "$GITHUB_WORKSPACE/snark-timing-hooks.txt"
+          out="$GITHUB_WORKSPACE/snark-timing-hooks.txt"
+          echo "ZEROCHECK_TIMING_SOURCE_INVENTORY; no candidate measured" > "$out"
+          rg -n -C 5 --fixed-strings '[zc-timing]' crates/ >> "$out" || true
+          echo "=== Related timing and feature switches ===" >> "$out"
+          rg -n -C 2 'zc.timing|ZC_TIMING|Instant::now|std::time::Instant|round.one|identity.c' crates/flock-prover/src crates/flock-core/src \
+            | head -n 350 >> "$out" || true
+          if ! grep -Fq '[zc-timing]' "$out"; then
+            echo "::notice::No [zc-timing] diagnostic found in checked-out source; do not assume instrumentation exists."
+          fi
+          echo "Inventory only: timings have not been enabled or measured." >> "$out"
 
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
