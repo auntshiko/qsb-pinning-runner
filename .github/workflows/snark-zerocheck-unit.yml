@@ -43,6 +43,7 @@ jobs:
           export RUST_TEST_THREADS=1
           export CARGO_INCREMENTAL=0
           export RUSTFLAGS="-C target-cpu=x86-64"
+          set +e
           cargo +1.97.0 test --locked --offline -p flock-core zerocheck -- --nocapture --test-threads=1 > "$GITHUB_WORKSPACE/zerocheck-unit-results/tests.log" 2>&1
           rc=$?
           echo "=== UNIT TEST FAILURE DIAGNOSTICS ==="
