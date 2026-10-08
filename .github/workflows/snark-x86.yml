@@ -95,6 +95,16 @@ jobs:
           }'''
           if old not in s: raise SystemExit("fresh_seed source mismatch")
           p.write_text(s.replace(old,new,1))
+
+          # Combine with the independent NTT shaped-kernel selector rollback.
+          # The old single-score test measured this alone at -0.890%; the
+          # combination is only promoted if the hardened paired gate clears 2%.
+          s=p.read_text()
+          old='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_none());'
+          new='std::sync::LazyLock::new(|| std::env::var_os("FLOCK_NO_NTT_SHAPED").is_some());'
+          if old not in s: raise SystemExit("NTT shaped-kernel selector source mismatch")
+          if s.count(old) != 1: raise SystemExit("unexpected NTT shaped-kernel selector occurrence count")
+          p.write_text(s.replace(old,new,1))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
@@ -196,7 +206,7 @@ jobs:
           PY
           done
 
-          echo "=== BUILD ISOLATED CANDIDATE: disable NTT deep-pass L1 prefetch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          echo "=== BUILD COMBINED NTT CANDIDATE: disable deep-pass L1 prefetch + generic deep-row dispatch ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           python3 - <<'PY'
           from pathlib import Path
           p=Path("crates/flock-core/src/ntt/additive_ntt_f128.rs")
