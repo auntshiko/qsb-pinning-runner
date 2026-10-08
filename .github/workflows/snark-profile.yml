@@ -1,0 +1,90 @@
+name: SNARK x86 baseline profile only
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon and clone challenge
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          test -n "${YUKON_API_TOKEN:-}"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Prepare trusted baseline
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          ./setup.sh
+      - name: Inspect profiling hooks and source revision
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | tee "$GITHUB_WORKSPACE/profile-revision.txt"
+          lscpu | grep -E 'Model name|Architecture' | tee "$GITHUB_WORKSPACE/profile-cpu.txt"
+          grep -RInE 'zerocheck_s|lincheck_s|witness_s|commit_s|ring.switch|Instant::now|elapsed\(' crates/flock-prover/src/r1cs_hashes/blake3.rs | head -160 > "$GITHUB_WORKSPACE/profile-timing-hooks.txt" || true
+          cp crates/flock-core/src/zerocheck.rs "$GITHUB_WORKSPACE/profile-zerocheck.rs"
+      - name: Profile one trusted baseline proof
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("benchmark-tools/harness/src/main.rs")
+          s=p.read_text()
+          old='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              if let Ok(value) = std::env::var("FLOCK_DIAG_SEED") {
+                  return Ok(value.parse()?);
+              }
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          if old not in s: raise SystemExit("seed hook changed; stop safely")
+          p.write_text(s.replace(old,new,1))
+          PY
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" cargo +1.97.0 build --locked --offline --profile challenge --manifest-path Cargo.toml --target-dir target/profile-harness -p flock-benchmark-harness
+          HARNESS="$PWD/target/profile-harness/challenge/flock_benchmark_harness"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          test -x "$HARNESS"; test -x "$BASE"
+          mkdir -p benchmark-results/profile-only
+          set +e
+          FLOCK_DIAG_SEED=0 /usr/bin/time -v -o "$GITHUB_WORKSPACE/profile-resource-usage.txt" "$HARNESS" "$BASE" "$PWD/benchmark-results/profile-only" "$PWD/score.json" "$GITHUB_WORKSPACE/profile-report.md" 18 1 0 1 > "$GITHUB_WORKSPACE/profile-execution.log" 2>&1
+          rc=$?
+          set -e
+          echo "TRUSTED_BASELINE_EXIT=$rc" | tee "$GITHUB_WORKSPACE/profile-status.txt"
+          tail -45 "$GITHUB_WORKSPACE/profile-execution.log"
+          if [ "$rc" -ne 0 ]; then
+            echo "Verifier failed; no performance claims. Diagnostic artifact retained."
+          fi
+      - name: Upload profile diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-baseline-profile
+          if-no-files-found: warn
+          path: |
+            profile-*.txt
+            profile-*.log
+            profile-*.md
+            profile-*.rs
+            work/**/score.json
