@@ -139,6 +139,10 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/snark-crossenv-capture"
           cp -a "$out/." "$GITHUB_WORKSPACE/snark-crossenv-capture/"
           find "$GITHUB_WORKSPACE/snark-crossenv-capture" -type f -printf '%P %s bytes\n' | sort | tee "$GITHUB_WORKSPACE/snark-crossenv-files.txt"
+          # Capture the worker's serialized proof at its actual serialization site.
+          # A worker may emit proof.bin or a different extension; retain all binary
+          # files found in the scratch tree rather than assuming *.proof.
+          find "$out" -type f -printf '%p %s bytes\n' | sort
           proof=$(find "$out" -type f -name '*.proof' | head -1 || true)
           if [ -n "$proof" ]; then
             cp "$proof" "$GITHUB_WORKSPACE/seed0.proof"
