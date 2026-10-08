@@ -271,20 +271,16 @@ jobs:
           PY
           done
 
-          echo "=== BUILD ISOLATED CANDIDATE: disable Zerocheck lookahead ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("crates/flock-core/src/zerocheck.rs")
-          s=p.read_text()
-          import re
-          selector='FLOCK_NO_ZC_LOOKAHEAD'
-          lines=s.splitlines(keepends=True)
-          matches=[i for i,line in enumerate(lines) if 'std::env::var_os("FLOCK_NO_ZC_LOOKAHEAD").is_some()' in line]
-          if len(matches)!=1: raise SystemExit(f"expected one active lookahead selector; found {len(matches)}")
-          i=matches[0]
-          lines[i]=lines[i].replace('.is_some()', '.is_none()', 1)
-          p.write_text(''.join(lines))
-          PY
+          echo "=== INSPECT ORIGINAL ZEROCHECK LOOKAHEAD HOT PATH ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
+          {
+            echo "=== LOOKAHEAD REFERENCES ==="
+            grep -n -C 18 'FLOCK_NO_ZC_LOOKAHEAD' crates/flock-core/src/zerocheck.rs || true
+            echo "=== LOOKAHEAD FUNCTIONS AND ALLOCATIONS ==="
+            grep -nE -C 4 'lookahead|Lookahead|with_capacity|collect\\(|\.clone\\(|par_iter|par_chunks|Mutex|RwLock' crates/flock-core/src/zerocheck.rs | head -420 || true
+            echo "=== SOURCE FINGERPRINT ==="
+            sha256sum crates/flock-core/src/zerocheck.rs
+          } > "$GITHUB_WORKSPACE/snark-lookahead-source.txt"
+          echo "Candidate unchanged: original Zerocheck lookahead retained." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/ab-candidate -p flock-benchmark-worker
@@ -366,6 +362,7 @@ jobs:
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
+            snark-lookahead-source.txt
             snark-divergence.log
             snark-setup-baseline.sha256
             snark-crossenv-env.txt
