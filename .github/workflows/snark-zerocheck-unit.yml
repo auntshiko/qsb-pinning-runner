@@ -1,11 +1,20 @@
 name: SNARK Zerocheck unit correctness
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner selection: hosted portable, or self-hosted AVX-512-capable x86_64"
+        type: choice
+        required: true
+        default: hosted
+        options:
+          - hosted
+          - native-avx512
 permissions:
   contents: read
 jobs:
   zerocheck-tests:
-    runs-on: ubuntu-latest
+    runs-on: \${{ inputs.runner == 'native-avx512' && fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"snark-avx512\"]') || 'ubuntu-latest' }}
     timeout-minutes: 20
     env:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
@@ -168,6 +177,12 @@ jobs:
           echo "=== TEST SOURCE LOCAL ARRAY FOOTPRINT ==="
           sed -n '855,940p' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs | grep -nE 'let |const |Box::|vec!|\[F128;|\[u8;' | head -55 || true
           echo "=== NATIVE CPU FEATURES ==="
+          if [[ "${{ inputs.runner }}" == "native-avx512" ]]; then
+            if ! grep -qm1 -E '(^flags|^Features)[[:space:]]*:.*avx512f' /proc/cpuinfo; then
+              echo "::error::Selected native runner lacks AVX-512F."
+              exit 91
+            fi
+          fi
           lscpu | grep -E 'Model name:|Flags:|Architecture:' | cut -c1-350 || true
           echo "=== RUSTC NATIVE FEATURE CFG ==="
           rustc +1.97.0 --print cfg -C target-cpu=native | grep -E 'target_feature="(avx512f|vpclmulqdq|avx2)"' || true
@@ -183,6 +198,10 @@ jobs:
           echo "=== KERNEL CALL SITES ==="
           grep -n -E 'fn .*bcomplement|fn .*image|unsafe|stack|Box::|alloca|\[[^]]+; [0-9]{3,}\]' crates/flock-core/src/zerocheck/univariate_skip_optimized/kernels/x86_64_bcomplement.rs | head -90 || true
           if ! grep -q 'image_variants_and_residual_bcomplement_match_incumbent: test' "$GITHUB_WORKSPACE/zerocheck-unit-results/native-test-list.txt"; then
+            if [[ "${{ inputs.runner }}" == "native-avx512" ]]; then
+              echo "::error::Dedicated native runner did not compile the b-complement test."
+              exit 92
+            fi
             echo "::notice::SKIPPED_UNSUPPORTED_CPU: b-complement kernel test not compiled on this runner."
             echo "B_COMPLEMENT_RESULT=SKIPPED_UNSUPPORTED_CPU" >> "$GITHUB_STEP_SUMMARY"
             exit 0
