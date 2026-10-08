@@ -88,7 +88,7 @@ jobs:
           lscpu | grep -E 'Model name|Flags' | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
           rustc +1.97.0 -vV | tee -a "$GITHUB_WORKSPACE/snark-divergence.log"
 
-      - name: Preflight trusted-baseline validity
+      - name: Zerocheck validity bisection
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
@@ -114,7 +114,6 @@ jobs:
           }'''
           if old not in s: raise SystemExit("fresh_seed source mismatch")
           p.write_text(s.replace(old,new,1))
-
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
@@ -122,43 +121,38 @@ jobs:
           HARNESS="$PWD/target/preflight-harness/challenge/flock_benchmark_harness"
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
-          : > "$GITHUB_WORKSPACE/snark-preflight.log"
-          # Diagnose the authoritative worker produced by challenge setup.
-          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
-          test -x "$BASE"
-          sha256sum "$BASE" | tee "$GITHUB_WORKSPACE/snark-setup-baseline.sha256"
+          : > "$GITHUB_WORKSPACE/snark-zc-bisection.log"
 
-          pass=0
-          for attempt in 1 2 3; do
-            scratch="$PWD/benchmark-results/preflight-$attempt"
-            rm -rf "$scratch"
-            mkdir -p "$scratch"
-            rm -f score.json
-            echo "=== PREFLIGHT attempt=$attempt/3 baseline seed=0 threads=1 ===" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+          run_case() {
+            name="$1"; shift
+            scratch="$PWD/benchmark-results/zc-bisect-$name"
+            rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
+            echo "=== ZC_BISECT case=$name seed=0 threads=1 env=$* ===" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
             set +e
-            FLOCK_DIAG_SEED=0 "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
-              "$PWD/benchmark-results/preflight-$attempt.md" 18 1 0 1 \
-              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            env FLOCK_DIAG_SEED=0 "$@" "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
+              "$PWD/benchmark-results/zc-bisect-$name.md" 18 1 0 1 \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
             rc=${PIPESTATUS[0]}
             set -e
-            if [ "$rc" -eq 0 ] && python3 - <<'PY'
-          import json
-          d=json.load(open("score.json"))
-          assert isinstance(d.get("score"),(int,float)) and d["score"] > 0
-          PY
-            then
-              pass=$((pass+1))
-              echo "PREFLIGHT_ATTEMPT_PASS attempt=$attempt" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+            if [ "$rc" -eq 0 ]; then
+              echo "ZC_BISECT_PASS case=$name" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
             else
-              echo "PREFLIGHT_ATTEMPT_FAIL attempt=$attempt rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+              echo "ZC_BISECT_FAIL case=$name rc=$rc" | tee -a "$GITHUB_WORKSPACE/snark-zc-bisection.log"
             fi
-          done
-          echo "PREFLIGHT_SUMMARY passes=$pass/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
-          if [ "$pass" -lt 3 ]; then
-            echo "::error::Trusted baseline is not deterministic on this hosted runner ($pass/3 valid). Candidate was not built or measured."
-            exit 86
-          fi
-          echo "PREFLIGHT_PASS trusted baseline verified 3/3" | tee -a "$GITHUB_WORKSPACE/snark-preflight.log"
+          }
+
+          # One switch per run: these are the highest-risk zerocheck paths found
+          # by the source inventory (streaming NT publication, serial/parallel
+          # oracle, GFNI C drain, lookahead cascade, and fused tail rounds).
+          run_case default
+          run_case abinner_nt_off FLOCK_NO_ABINNER_NT=1
+          run_case serial_par_off FLOCK_NO_SERIAL_PAR=1
+          run_case c_gfni_off FLOCK_NO_ZC_C_GFNI=1
+          run_case lookahead_off FLOCK_NO_ZC_LOOKAHEAD=1
+          run_case tail_fusion_off FLOCK_NO_TAIL_FUSION=1
+
+          echo "::error::Diagnostic bisection complete. Candidate intentionally not built or measured."
+          exit 86
 
       - name: Reliable single-thread paired A/B gate
         working-directory: ${{ env.SNARK_ROOT }}
