@@ -289,6 +289,21 @@ jobs:
           with open(out,"a") as f: f.write(f"baseline\t{seed}\t{score}\n")
           PY
           done
+          python3 - "$GITHUB_WORKSPACE/snark-ab.log" "$GITHUB_WORKSPACE/snark-baseline-profile-summary.txt" <<'PY'
+          import re,statistics,sys
+          log=open(sys.argv[1]).read()
+          scores=[float(x) for x in re.findall(r'^measured_trial=1/1 trial_score=([0-9.]+).*verified=true',log,re.M)]
+          rss=[int(x) for x in re.findall(r'Maximum resident set size \(kbytes\): (\d+)',log)]
+          wall=[x for x in re.findall(r'Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): (\S+)',log)]
+          if len(scores)!=6 or len(rss)!=6 or len(wall)!=6:
+              raise SystemExit(f"incomplete profile: scores={len(scores)} rss={len(rss)} wall={len(wall)}")
+          with open(sys.argv[2],"w") as f:
+              f.write(f"baseline_trials=6 verified=6 median_score={statistics.median(scores):.3f}\n")
+              f.write(f"median_peak_rss_mib={statistics.median(rss)/1024:.1f}\n")
+              f.write(f"elapsed_wall_samples={','.join(wall)}\n")
+              f.write("No candidate measured. These are process-level measurements, not prover phase attribution.\n")
+          print(open(sys.argv[2]).read())
+          PY
           echo "PROFILE_ONLY_COMPLETE: 6 verified baseline trials; no candidate measured; Yukon submission disabled." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
       - name: Require explicit Yukon release
         if: ${{ inputs.submit != true }}
@@ -325,6 +340,7 @@ jobs:
             snark-preflight.log
             snark-ab.log
             snark-ab.tsv
+            snark-baseline-profile-summary.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
