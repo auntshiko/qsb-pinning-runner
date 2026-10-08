@@ -34,7 +34,11 @@ jobs:
         run: |
           set -euo pipefail
           git rev-parse HEAD | tee "$GITHUB_WORKSPACE/profile-revision.txt"
-          lscpu | grep -E 'Model name|Architecture' | tee "$GITHUB_WORKSPACE/profile-cpu.txt"
+          lscpu | grep -E 'Model name|Architecture|Vendor ID|Flags' | tee "$GITHUB_WORKSPACE/profile-cpu.txt"
+          echo "=== CPU / BINARY DISPATCH REFERENCES ===" > "$GITHUB_WORKSPACE/profile-dispatch.txt"
+          grep -RInE 'is_x86_feature_detected!|target_feature|target_cpu|target-cpu|avx2|pclmulqdq|vpclmulqdq|gfni' crates/flock-core/src crates/flock-prover/src | head -180 >> "$GITHUB_WORKSPACE/profile-dispatch.txt" || true
+          echo "=== PROVER TIMING OUTPUT REFERENCES ===" > "$GITHUB_WORKSPACE/profile-stage-timing.txt"
+          grep -RInE 'witness_s|commit_s|zerocheck_s|lincheck_s|proof.*timing|stage.*timing' crates/flock-prover/src/r1cs_hashes/blake3.rs | head -140 >> "$GITHUB_WORKSPACE/profile-stage-timing.txt" || true
           grep -RInE 'zerocheck_s|lincheck_s|witness_s|commit_s|ring.switch|Instant::now|elapsed\(' crates/flock-prover/src/r1cs_hashes/blake3.rs | head -160 > "$GITHUB_WORKSPACE/profile-timing-hooks.txt" || true
           cp crates/flock-core/src/zerocheck.rs "$GITHUB_WORKSPACE/profile-zerocheck.rs"
       - name: Profile one trusted baseline proof
