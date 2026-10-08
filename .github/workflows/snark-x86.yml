@@ -259,10 +259,10 @@ jobs:
           import re
           selector='FLOCK_NO_ZC_LOOKAHEAD'
           lines=s.splitlines(keepends=True)
-          matches=[i for i,line in enumerate(lines) if selector in line and '.is_none()' in line]
-          if len(matches)!=1: raise SystemExit(f"expected one enabled lookahead selector; found {len(matches)}")
+          matches=[i for i,line in enumerate(lines) if 'std::env::var_os("FLOCK_NO_ZC_LOOKAHEAD").is_some()' in line]
+          if len(matches)!=1: raise SystemExit(f"expected one active lookahead selector; found {len(matches)}")
           i=matches[0]
-          lines[i]=lines[i].replace('.is_none()', '.is_some()', 1)
+          lines[i]=lines[i].replace('.is_some()', '.is_none()', 1)
           p.write_text(''.join(lines))
           PY
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
