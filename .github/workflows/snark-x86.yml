@@ -124,6 +124,19 @@ jobs:
           } > "$GITHUB_WORKSPACE/snark-baseline-build-audit.txt"
           echo "Baseline build and dispatch audit captured."
 
+      - name: Capture Zerocheck source before verification
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          source_file="crates/flock-core/src/zerocheck.rs"
+          echo "=== ZEROCHECK SOURCE FINGERPRINT ==="
+          sha256sum "$source_file"
+          echo "=== LOOKAHEAD SELECTOR AND NEARBY SOURCE ==="
+          grep -n -C 28 'FLOCK_NO_ZC_LOOKAHEAD' "$source_file" | head -190 || true
+          echo "=== SOURCE HOT-PATH REFERENCES ==="
+          grep -nE 'lookahead|Lookahead|with_capacity|collect\\(|clone\\(|par_iter|par_chunks|Mutex|RwLock' "$source_file" | head -120 || true
+          cp "$source_file" "$GITHUB_WORKSPACE/snark-zerocheck-source.rs"
+          echo "ZEROCHECK_SOURCE_CAPTURED"
       - name: Preflight trusted-baseline validity
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
@@ -345,6 +358,7 @@ jobs:
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
             snark-lookahead-source.txt
+            snark-zerocheck-source.rs
             snark-divergence.log
             snark-setup-baseline.sha256
             snark-crossenv-env.txt
