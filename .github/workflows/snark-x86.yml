@@ -167,6 +167,12 @@ jobs:
           CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
             cargo +1.97.0 build --locked --offline --profile challenge \
             --manifest-path Cargo.toml --target-dir target/preflight-harness -p flock-benchmark-harness
+          echo "=== VERIFY HARNESS SEED CONTROL ==="
+          grep -n -C 5 'fresh_seed()' benchmark-tools/harness/src/main.rs
+          if ! grep -q 'FLOCK_DIAG_SEED' benchmark-tools/harness/src/main.rs; then
+            echo "::error::Harness ignores FLOCK_DIAG_SEED; deterministic benchmark claims are invalid. Stop before expensive proofs."
+            exit 87
+          fi
           HARNESS="$PWD/target/preflight-harness/challenge/flock_benchmark_harness"
           BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
           test -x "$HARNESS"; test -x "$BASE"
