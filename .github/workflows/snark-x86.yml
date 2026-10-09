@@ -86,24 +86,25 @@ jobs:
           } > "$out"
           echo "Timing audit recorded independently of trusted-proof host gate."
           
-      - name: Audit harness worker environment before CPU gate
+      - name: Locate actual timing and worker-spawn source before CPU gate
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
-          echo "=== HARNESS-TO-WORKER ENVIRONMENT PROPAGATION ===" > "$GITHUB_WORKSPACE/snark-worker-env-audit.txt"
+          out="$GITHUB_WORKSPACE/snark-worker-env-audit.txt"
           {
-            echo "=== Worker spawn source ==="
-            rg -n -C 8 'Command::new|env_clear\\(|\\.env\\(|Stdio::|spawn\\(' benchmark-tools/harness/src || true
-            echo "=== Timing variable source references ==="
-            rg -n -C 5 'FLOCK_ZC_TIMING|zc-timing' crates/ benchmark-tools/ || true
-            echo "=== Runner environment variable value ==="
-            if [[ "${FLOCK_ZC_TIMING:-}" == "1" ]]; then
-              echo "PARENT_TIMING_FLAG=1"
-            else
-              echo "PARENT_TIMING_FLAG=not_set_at_step_scope; set per harness invocation"
-            fi
-          } >> "$GITHUB_WORKSPACE/snark-worker-env-audit.txt"
-
+            echo "=== Repository root and relevant source files ==="
+            pwd
+            find . -type f \( -name 'zerocheck.rs' -o -name 'main.rs' -o -name '*harness*.rs' \) -not -path '*/target/*' | head -n 100
+            echo "=== All Rust source references (include hidden/ignored paths) ==="
+            rg -uuu -n -g '*.rs' -g '!**/target/**' -g '!**/.git/**' -m 4 'FLOCK_ZC_TIMING|\\[zc-timing\\]|Command::new|env_clear\\(' . | head -n 180 || true
+            echo "=== Worker spawn in benchmark harness ==="
+            rg -n -C 8 'Command::new|env_clear|Stdio|spawn' benchmark-tools/harness/src || true
+            echo "=== Source code provenance ==="
+            git rev-parse HEAD || true
+            git status --short || true
+            echo "=== Timing environment on diagnostic step ==="
+            echo "FLOCK_ZC_TIMING=${FLOCK_ZC_TIMING:-unset}; benchmark sets it per harness invocation"
+          } > "$out"
       - name: Record x86 host class
         run: |
           set -euo pipefail
