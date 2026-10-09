@@ -141,6 +141,14 @@ jobs:
             echo "::notice::HOST_SKIP_KNOWN_BASELINE_FAILURE: AMD EPYC 7763; trusted baseline historically fails; no candidate measured."
             exit 86
           fi
+          # EPYC 9V74 is intermittently incorrect on the unchanged trusted
+          # baseline (passing #115, failing #119 and #120). Until the root
+          # cause is resolved, skip costly proof runs but retain the preceding
+          # reproducibility fingerprints and source audits as artifacts.
+          if [[ "$model" == *"EPYC 9V74"* ]]; then
+            echo "::notice::HOST_SKIP_INTERMITTENT_BASELINE_FAILURE: AMD EPYC 9V74; passing and failing trusted proofs observed; no candidate measured."
+            exit 86
+          fi
           # EPYC 9V74 has both passing (#105) and failing (#109) baseline
           # results. Do not blacklist the model; flag intermittent correctness.
           if [[ "$model" == *"EPYC 9V74"* ]]; then
