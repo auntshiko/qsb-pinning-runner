@@ -363,23 +363,23 @@ jobs:
               s=p.read_text()
               # Exact source captured from successful run #141, lines 4082-4091.
               old='''.map(|s| s.local_res_ab)
-        .reduce(
-            || [F128::ZERO; ELL],
-            |mut ab1, ab2| {
+              .reduce(
+                  || [F128::ZERO; ELL],
+                  |mut ab1, ab2| {
                 for i in 0..ELL {
                     ab1[i] += ab2[i];
                 }
                 ab1
-            },
-        );'''
+                  },
+              );'''
               new='''.map(|s| s.local_res_ab)
-        .reduce_with(|mut ab1, ab2| {
-            for i in 0..ELL {
+              .reduce_with(|mut ab1, ab2| {
+                  for i in 0..ELL {
                 ab1[i] += ab2[i];
-            }
-            ab1
-        })
-        .unwrap_or([F128::ZERO; ELL]);'''
+                  }
+                  ab1
+              })
+              .unwrap_or([F128::ZERO; ELL]);'''
               count=s.count(old)
               if count!=1:
                   raise SystemExit(f"packed AB reduction source mismatch: expected exactly one match, got {count}")
