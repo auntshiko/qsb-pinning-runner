@@ -361,11 +361,9 @@ jobs:
           if os.environ.get("KERNEL_REDUCE_CANDIDATE")=="true":
               p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized.rs")
               s=p.read_text()
-              # Match the reduction directly: function names may change upstream.
-              # Require exactly one occurrence to avoid patching unrelated code.
-              block=s
+              # Exact source captured from successful run #141, lines 4082-4091.
               old='''.map(|s| s.local_res_ab)
-            .reduce(
+        .reduce(
             || [F128::ZERO; ELL],
             |mut ab1, ab2| {
                 for i in 0..ELL {
@@ -373,26 +371,18 @@ jobs:
                 }
                 ab1
             },
-            );'''
+        );'''
               new='''.map(|s| s.local_res_ab)
-            .reduce_with(|mut ab1, ab2| {
+        .reduce_with(|mut ab1, ab2| {
             for i in 0..ELL {
                 ab1[i] += ab2[i];
             }
             ab1
-            })
-            .unwrap_or([F128::ZERO; ELL]);'''
-              if block.count(old)!=1:
-                  import difflib
-                  lines=s.splitlines()
-                  hits=[i for i,line in enumerate(lines) if "local_res_ab" in line or ".reduce(" in line or ".reduce_with(" in line]
-                  print(f"PACKED_AB_SOURCE_MISMATCH: expected 1 exact match, found {block.count(old)}",flush=True)
-                  print(f"PACKED_AB_SOURCE_HITS={len(hits)}",flush=True)
-                  for i in hits[:24]:
-                      lo=max(0,i-5); hi=min(len(lines),i+15)
-                      print(f"PACKED_AB_SOURCE_CONTEXT lines {lo+1}-{hi}:",flush=True)
-                      for k in range(lo,hi): print(f"{k+1}: {lines[k]}",flush=True)
-                  raise SystemExit("candidate patch not applied; source context above required before modifying")
+        })
+        .unwrap_or([F128::ZERO; ELL]);'''
+              count=s.count(old)
+              if count!=1:
+                  raise SystemExit(f"packed AB reduction source mismatch: expected exactly one match, got {count}")
               p.write_text(s.replace(old,new,1))
               print("KERNEL_REDUCE_CANDIDATE_APPLIED")
           else:
