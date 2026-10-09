@@ -16,7 +16,7 @@ lines=[line for line in lines if not ('.envs(std::env::vars().filter(' in line)]
 s=''.join(lines)
 assert s.count(anchor)==1, "Expected exactly one harness environment clearing point"
 allow=' | '.join('"'+k+'"' for k in keys)
-insertion='\\n        .envs(std::env::vars().filter(|(key, _)| matches!(key.as_str(), '+allow+')))'
+insertion='\n        .envs(std::env::vars().filter(|(key, _)| matches!(key.as_str(), '+allow+')))'
 s=s.replace(anchor,anchor+insertion,1)
 p.write_text(s)
 print("Harness forwards only explicit zerocheck diagnostic switches")
