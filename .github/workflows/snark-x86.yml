@@ -97,6 +97,51 @@ jobs:
           test -x "$candidate"
           sha256sum "$candidate" >> "$status"
           echo "CANDIDATE_COMPILE_PASS; proof verification and speed untested" >> "$status"
+      - name: Candidate trusted proof smoke test
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          status="$GITHUB_WORKSPACE/snark-candidate-proof-status.txt"
+          echo "CANDIDATE_PROOF_STARTED; no throughput claim" > "$status"
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/round1-proof-harness \
+            -p flock-benchmark-harness
+          harness="$PWD/target/round1-proof-harness/challenge/flock_benchmark_harness"
+          candidate="$PWD/target/round1-scheduling-candidate/challenge/flock-benchmark-worker"
+          test -x "$harness"; test -x "$candidate"
+          mkdir -p benchmark-results/round1-proof-smoke
+          set +e
+          "$harness" "$candidate" "$PWD/benchmark-results/round1-proof-smoke" \
+            "$PWD/score.json" "$PWD/benchmark-results/round1-proof-smoke.md" \
+            18 1 0 1 > "$GITHUB_WORKSPACE/snark-candidate-proof.log" 2>&1
+          rc=$?
+          set -e
+          echo "HARNESS_EXIT_CODE=$rc" >> "$status"
+          if [ "$rc" -ne 0 ]; then
+            echo "CANDIDATE_PROOF_FAIL" >> "$status"
+            tail -n 70 "$GITHUB_WORKSPACE/snark-candidate-proof.log"
+            exit "$rc"
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("score.json")
+          assert p.is_file(), "missing trusted harness score"
+          d=json.loads(p.read_text())
+          assert isinstance(d.get("score"),(int,float)) and d["score"]>0, "invalid trusted score"
+          PY
+          echo "CANDIDATE_PROOF_PASS: trusted harness returned a positive score; performance untested" >> "$status"
+      - name: Upload candidate proof smoke result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-round1-proof-smoke
+          path: |
+            snark-candidate-proof-status.txt
+            snark-candidate-proof.log
+          if-no-files-found: warn
       - name: Upload candidate compile status
         if: always()
         uses: actions/upload-artifact@v4
