@@ -63,6 +63,33 @@ jobs:
           ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
           test -n "$ROOT"
           echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Capture low-overhead CPU profile of trusted baseline
+        if: ${{ inputs.analysis_only }}
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          report="$GITHUB_WORKSPACE/snark-cpu-profile.txt"
+          echo "BASELINE_PROFILE; host-dependent, not a candidate speedup claim" > "$report"
+          echo "HOST_MODEL=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" >> "$report"
+          echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$report"
+          if ! command -v perf >/dev/null 2>&1; then
+            echo "PERF_UNAVAILABLE: install linux-tools on a dedicated benchmark runner" >> "$report"
+            exit 0
+          fi
+          echo "PERF_VERSION=$(perf --version)" >> "$report"
+          echo "PERF_PERMISSION=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unknown)" >> "$report"
+          if ! perf stat -e cycles -- true >> "$report" 2>&1; then
+            echo "PERF_DENIED: GitHub hosted kernel permissions prevent hardware profiling; do not treat source inspection as measured hotspots" >> "$report"
+          else
+            echo "PERF_AVAILABLE: hardware events accessible; dedicated baseline proof profiling is next" >> "$report"
+          fi
+      - name: Upload CPU profiling feasibility
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-cpu-profiling-feasibility
+          path: snark-cpu-profile.txt
+          if-no-files-found: warn
       - name: Capture exact packed AB reduction source
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
