@@ -13,7 +13,10 @@ new='.envs(std::env::vars().filter(|(key, _)| matches!(key.as_str(), "FLOCK_NO_R
 if old in s:
     p.write_text(s.replace(old,new,1))
 elif new not in s:
-    raise SystemExit("HARNESS_ENV_FORWARDING_NOT_FOUND; refusing untrusted comparison")
+    anchor='.env_clear()'
+    if s.count(anchor)!=1:
+        raise SystemExit("HARNESS_ENV_FORWARDING_NOT_FOUND; refusing untrusted comparison")
+    p.write_text(s.replace(anchor,anchor+'\\n        '+new,1))
 PY
 . "${CARGO_HOME:-$HOME/.cargo}/env"
 CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" cargo +1.97.0 build --locked --offline --profile challenge --target-dir target/cloud-df8 -p flock-benchmark-harness
