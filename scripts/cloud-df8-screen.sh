@@ -12,6 +12,32 @@ echo "CPU=$(grep -m1 'model name' /proc/cpuinfo || true)"
 echo "RUST=$(rustc --version)"
 echo "CONTROL=default memory reuse; TREATMENT=FLOCK_NO_RS_REUSE_FOLD8_A=1 (independent A/W)"
 echo "WARNING: On generic free-cloud CPUs, results are directional only."
+# Do not burn compute on hosts that cannot exercise the ranked x86 kernel.
+python3 - <<'PY'
+from pathlib import Path
+flags=next((line.split(':',1)[1].split() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('flags')),[])
+needed={'avx512f','gfni','vpclmulqdq'}
+missing=sorted(needed-set(flags))
+if missing:
+    raise SystemExit("UNSUITABLE_CPU: missing "+", ".join(missing)+". Stop before setup/build.")
+print("CPU_FEATURE_PREFLIGHT_PASSED")
+PY
+# The trusted harness calls env_clear() when spawning the worker.
+# Allow ONLY the DirectFold8 experimental switch to cross this boundary.
+python3 - <<'PY'
+from pathlib import Path
+p=Path("benchmark-tools/harness/src/main.rs")
+s=p.read_text()
+old='''.env_clear()
+        .env("RAYON_NUM_THREADS", config.threads.to_string())'''
+new='''.env_clear()
+        .envs(std::env::vars().filter(|(key, _)| key == "FLOCK_NO_RS_REUSE_FOLD8_A"))
+        .env("RAYON_NUM_THREADS", config.threads.to_string())'''
+if s.count(old)!=1:
+    raise SystemExit(f"HARNESS_ENV_PATCH_MISMATCH: {s.count(old)} matches")
+p.write_text(s.replace(old,new,1))
+print("HARNESS_SWITCH_FORWARDING_APPLIED")
+PY
 ./setup.sh
 . "${CARGO_HOME:-$HOME/.cargo}/env"
 CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" cargo +1.97.0 build --locked --offline --profile challenge --target-dir target/cloud-df8 -p flock-benchmark-worker -p flock-benchmark-harness
