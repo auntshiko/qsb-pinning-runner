@@ -197,6 +197,45 @@ jobs:
                 for j in range(lo,hi):
                   f.write(f"{j+1:5d} {src[j]}\n")
           PY
+      - name: Inspect actual packed round-one kernels
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os,re
+          root=Path("crates/flock-core/src")
+          out=Path(os.environ["GITHUB_WORKSPACE"])/"snark-packed-kernel-analysis.txt"
+          names=(
+            "round1_shift_reduce_ab_packed_padded_with_precomputed",
+            "round1_shift_reduce_extract_c_packed_padded_with_precomputed_ab_fold4",
+            "round1_shift_reduce_extract_c_packed_padded_with_precomputed_ab_quad",
+            "round1_shift_reduce_extract_c_packed_padded_with_s_hat_v_quad",
+          )
+          sources=list(root.rglob("*.rs"))
+          with out.open("w") as f:
+            f.write("PACKED_KERNEL_SOURCE_INSPECTION_ONLY; no modification or performance claim.\n")
+            for name in names:
+              hits=[]
+              for path in sources:
+                lines=path.read_text().splitlines()
+                for i,line in enumerate(lines):
+                  if re.search(r"\b(?:pub(?:\([^)]*\))?\s+)?fn\s+"+re.escape(name)+r"\b",line):
+                    hits.append((path,i,lines))
+              f.write(f"\n=== {name}: {len(hits)} definitions ===\n")
+              for path,i,lines in hits:
+                f.write(f"FILE {path} LINE {i+1}\n")
+                for j in range(max(0,i-8),min(len(lines),i+190)):
+                  f.write(f"{j+1:5d} {lines[j]}\n")
+            f.write("\nNo kernel optimization has been selected or enabled.\n")
+          PY
+      - name: Upload packed-kernel evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-packed-kernel-analysis
+          path: snark-packed-kernel-analysis.txt
+          if-no-files-found: error
       - name: Upload inner-loop evidence
         if: always()
         uses: actions/upload-artifact@v4
