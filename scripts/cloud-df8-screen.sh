@@ -12,16 +12,11 @@ echo "CPU=$(grep -m1 'model name' /proc/cpuinfo || true)"
 echo "RUST=$(rustc --version)"
 echo "CONTROL=default memory reuse; TREATMENT=FLOCK_NO_RS_REUSE_FOLD8_A=1 (independent A/W)"
 echo "WARNING: On generic free-cloud CPUs, results are directional only."
-# Do not burn compute on hosts that cannot exercise the ranked x86 kernel.
-python3 - <<'PY'
-from pathlib import Path
-flags=next((line.split(':',1)[1].split() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('flags')),[])
-needed={'avx512f','gfni','vpclmulqdq'}
-missing=sorted(needed-set(flags))
-if missing:
-    raise SystemExit("UNSUITABLE_CPU: missing "+", ".join(missing)+". Stop before setup/build.")
-print("CPU_FEATURE_PREFLIGHT_PASSED")
-PY
+# Generic free-cloud CPUs are useful for correctness diagnosis even without AVX-512.
+# Never interpret their timings as official target-CPU performance.
+if ! grep -qm1 'avx512f' /proc/cpuinfo; then
+  echo "GENERIC_CPU: correctness testing allowed; official performance claims prohibited."
+fi
 # The trusted harness calls env_clear() when spawning the worker.
 # Allow ONLY the DirectFold8 experimental switch to cross this boundary.
 python3 - <<'PY'
