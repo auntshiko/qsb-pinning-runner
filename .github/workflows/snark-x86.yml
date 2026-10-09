@@ -229,6 +229,34 @@ jobs:
                   f.write(f"{j+1:5d} {lines[j]}\n")
             f.write("\nNo kernel optimization has been selected or enabled.\n")
           PY
+      - name: Capture full AB kernel and allocation consumers
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os,re
+          p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized.rs")
+          lines=p.read_text().splitlines()
+          out=Path(os.environ["GITHUB_WORKSPACE"])/"snark-ab-kernel-full.txt"
+          start=next(i for i,line in enumerate(lines) if "pub fn round1_shift_reduce_ab_packed_padded_with_precomputed(" in line)
+          end=min(len(lines),start+1050)
+          with out.open("w") as f:
+            f.write(f"Source: {p}; lines {start+1}-{end}; inspection only, no performance claim.\n")
+            for i in range(start,end):
+              f.write(f"{i+1:5d} {lines[i]}\n")
+            f.write("\n=== All b_med_counts_live uses in source ===\n")
+            for i,line in enumerate(lines):
+              if "b_med_counts_live" in line:
+                f.write(f"{i+1:5d} {line}\n")
+          PY
+      - name: Upload full AB kernel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-full-ab-kernel
+          path: snark-ab-kernel-full.txt
+          if-no-files-found: error
       - name: Upload packed-kernel evidence
         if: always()
         uses: actions/upload-artifact@v4
