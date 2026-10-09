@@ -57,6 +57,39 @@ jobs:
             sed -n '450,850p' crates/flock-core/src/zerocheck.rs
             echo "=== Optimization candidates are NOT enabled ==="
           } > "$out"
+      - name: Prepare isolated round-one scheduling candidate
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/zerocheck.rs")
+          s=p.read_text()
+          old='''                match crate::smt_split::zc_r1_pools() {
+                      Some((ab_pool, c_pool)) => {
+                          rayon::join(|| ab_pool.install(ab_closure), || c_pool.install(c_closure))
+                      }
+                      None => rayon::join(ab_closure, c_closure),
+                  };'''
+          new='''                rayon::join(ab_closure, c_closure);'''
+          if s.count(old) != 1:
+              raise SystemExit("round-one scheduling source changed; refusing ambiguous candidate patch")
+          p.write_text(s.replace(old,new,1))
+          PY
+          git diff --check
+          git diff -- crates/flock-core/src/zerocheck.rs > "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
+          test -s "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
+          echo "CANDIDATE_PREPARED_ONLY: use rayon::join for AB/C round-one scheduling; no correctness or performance claim." > "$GITHUB_WORKSPACE/snark-candidate-status.txt"
+          git checkout -- crates/flock-core/src/zerocheck.rs
+      - name: Upload isolated candidate patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-round1-scheduling-candidate
+          path: |
+            snark-round1-scheduling-candidate.patch
+            snark-candidate-status.txt
+          if-no-files-found: warn
       - name: Upload independent source analysis
         if: always()
         uses: actions/upload-artifact@v4
