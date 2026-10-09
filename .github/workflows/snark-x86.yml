@@ -292,6 +292,15 @@ jobs:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Preflight benchmark CPU before expensive setup
+        run: |
+          set -euo pipefail
+          model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+          echo "PAIRED_AB_HOST_MODEL=$model"
+          if [[ "$model" == *"EPYC 7763"* || "$model" == *"EPYC 9V74"* ]]; then
+            echo "::notice::HOST_QUARANTINED: $model; no candidate measured. Runner selection is outside workflow control."
+            exit 86
+          fi
       - name: Install Yukon CLI
         run: |
           set -euo pipefail
@@ -453,7 +462,7 @@ jobs:
             snark-round1-*.log
           if-no-files-found: warn
   snark-submit:
-    if: ${{ !inputs.analysis_only }}
+    if: ${{ !inputs.analysis_only && !inputs.paired_ab }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
