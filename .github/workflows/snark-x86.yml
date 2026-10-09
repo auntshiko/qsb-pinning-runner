@@ -13,6 +13,8 @@ jobs:
   source-analysis:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Yukon CLI
