@@ -7,6 +7,11 @@ on:
         required: true
         default: true
         type: boolean
+      timing_profile:
+        description: "Run opt-in application-level zerocheck timing with trusted baseline worker"
+        required: true
+        default: false
+        type: boolean
       proof_smoke:
         description: "Run optional host-dependent candidate proof smoke test"
         required: true
@@ -89,6 +94,55 @@ jobs:
         with:
           name: snark-x86-cpu-profiling-feasibility
           path: snark-cpu-profile.txt
+          if-no-files-found: warn
+      - name: Profile baseline with application-level zerocheck timing
+        if: ${{ inputs.timing_profile }}
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          ./setup.sh
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --target-dir target/timing-baseline -p flock-benchmark-worker -p flock-benchmark-harness
+          harness="$PWD/target/timing-baseline/challenge/flock_benchmark_harness"
+          worker="$PWD/target/timing-baseline/challenge/flock-benchmark-worker"
+          test -x "$harness"; test -x "$worker"
+          mkdir -p benchmark-results/timing-baseline
+          echo "BASELINE_TIMING_ONLY; not a speedup claim" > "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          echo "HOST_MODEL=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          set +e
+          FLOCK_ZC_TIMING=1 "$harness" "$worker" "$PWD/benchmark-results/timing-baseline" \
+            "$PWD/score.json" "$PWD/benchmark-results/timing-baseline.md" 18 1 0 1 \
+            > "$GITHUB_WORKSPACE/snark-timing-baseline.log" 2>&1
+          rc=$?
+          set -e
+          echo "HARNESS_EXIT_CODE=$rc" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          if [ "$rc" -ne 0 ]; then
+            tail -n 60 "$GITHUB_WORKSPACE/snark-timing-baseline.log"
+            exit "$rc"
+          fi
+          python3 - <<'PY'
+          import json
+          d=json.load(open("score.json"))
+          assert isinstance(d.get("score"),(int,float)) and d["score"]>0, "trusted proof score missing"
+          print("TRUSTED_BASELINE_PROOF_PASS")
+          PY
+          echo "TRUSTED_BASELINE_PROOF_PASS" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          grep -Ei 'zc.timing|round.?1|fold|extract|reduce|elapsed|duration' "$GITHUB_WORKSPACE/snark-timing-baseline.log" | tail -n 150 > "$GITHUB_WORKSPACE/snark-timing-extract.txt" || true
+          if ! test -s "$GITHUB_WORKSPACE/snark-timing-extract.txt"; then
+            echo "NO_TIMING_MARKERS_VISIBLE: harness may suppress worker stderr; inspect worker output capture before interpreting results" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          fi
+      - name: Upload application-level baseline timing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-baseline-timing
+          path: |
+            snark-timing-status.txt
+            snark-timing-baseline.log
+            snark-timing-extract.txt
           if-no-files-found: warn
       - name: Capture exact packed AB reduction source
         working-directory: ${{ env.SNARK_ROOT }}
