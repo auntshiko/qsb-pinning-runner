@@ -65,16 +65,13 @@ jobs:
           from pathlib import Path
           p=Path("crates/flock-core/src/zerocheck.rs")
           s=p.read_text()
-          old='''                match crate::smt_split::zc_r1_pools() {
-                      Some((ab_pool, c_pool)) => {
-                          rayon::join(|| ab_pool.install(ab_closure), || c_pool.install(c_closure))
-                      }
-                      None => rayon::join(ab_closure, c_closure),
-                  };'''
-          new='''                rayon::join(ab_closure, c_closure);'''
-          if s.count(old) != 1:
-              raise SystemExit("round-one scheduling source changed; refusing ambiguous candidate patch")
-          p.write_text(s.replace(old,new,1))
+          import re
+          pattern=r'match\s+crate::smt_split::zc_r1_pools\(\)\s*\{.*?None\s*=>\s*rayon::join\(ab_closure,\s*c_closure\),?\s*\}'
+          matches=list(re.finditer(pattern,s,re.S))
+          if len(matches)!=1:
+              raise SystemExit(f"Expected exactly one scheduling block; found {len(matches)}")
+          patched=s[:matches[0].start()]+'rayon::join(ab_closure, c_closure)'+s[matches[0].end():]
+          p.write_text(patched)
           PY
           git diff --check
           git diff -- crates/flock-core/src/zerocheck.rs > "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
