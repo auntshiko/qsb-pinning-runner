@@ -333,7 +333,7 @@ jobs:
               end=s.index("\\n}",start)+2
               block=s[start:end]
               old='''.map(|s| s.local_res_ab)
-        .reduce(
+            .reduce(
             || [F128::ZERO; ELL],
             |mut ab1, ab2| {
                 for i in 0..ELL {
@@ -341,15 +341,15 @@ jobs:
                 }
                 ab1
             },
-        );'''
+            );'''
               new='''.map(|s| s.local_res_ab)
-        .reduce_with(|mut ab1, ab2| {
+            .reduce_with(|mut ab1, ab2| {
             for i in 0..ELL {
                 ab1[i] += ab2[i];
             }
             ab1
-        })
-        .unwrap_or([F128::ZERO; ELL]);'''
+            })
+            .unwrap_or([F128::ZERO; ELL]);'''
               if block.count(old)!=1: raise SystemExit("packed AB reduction anchor mismatch")
               p.write_text(s[:start]+block.replace(old,new,1)+s[end:])
               print("KERNEL_REDUCE_CANDIDATE_APPLIED")
