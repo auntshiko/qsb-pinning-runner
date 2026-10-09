@@ -10,6 +10,50 @@ on:
 permissions:
   contents: read
 jobs:
+  source-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Clone challenge source for independent analysis
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Inspect candidate hot paths without running proofs
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/snark-source-analysis.txt"
+          {
+            echo "SOURCE_ANALYSIS_ONLY; no benchmark or optimization claim"
+            echo "=== challenge revision ==="
+            git rev-parse HEAD
+            echo "=== Zerocheck round timing and fold context ==="
+            grep -nE -C 15 'zc-timing|FLOCK_ZC_TIMING|identity.C|fold|round1' crates/flock-core/src/zerocheck.rs | head -n 300 || true
+            echo "=== Worker process invocation ==="
+            grep -nE -C 8 'Command|spawn|env|stdout|stderr|wait|output' benchmark-tools/harness/src/main.rs benchmark-tools/worker/src/main.rs | head -n 220 || true
+            echo "=== Optimization candidates are NOT enabled ==="
+          } > "$out"
+      - name: Upload independent source analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-source-analysis
+          path: snark-source-analysis.txt
+          if-no-files-found: warn
+
   snark-submit:
     runs-on: ubuntu-latest
     timeout-minutes: 25
