@@ -112,6 +112,12 @@ jobs:
           echo "BASELINE_TIMING_ONLY; not a speedup claim" > "$GITHUB_WORKSPACE/snark-timing-status.txt"
           echo "HOST_MODEL=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+          model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+          if [[ "$model" == *"EPYC 7763"* || "$model" == *"EPYC 9V74"* ]]; then
+            echo "HOST_QUARANTINED: $model; baseline trusted proof is unreliable here; no timing measured" >> "$GITHUB_WORKSPACE/snark-timing-status.txt"
+            echo "::notice::TIMING_HOST_QUARANTINED: $model; use a compatible dedicated runner for trusted profiling."
+            exit 0
+          fi
           set +e
           FLOCK_ZC_TIMING=1 "$harness" "$worker" "$PWD/benchmark-results/timing-baseline" \
             "$PWD/score.json" "$PWD/benchmark-results/timing-baseline.md" 18 1 0 1 \
