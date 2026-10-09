@@ -282,7 +282,7 @@ jobs:
             scratch="$PWD/benchmark-results/ab/baseline-$seed"
             rm -rf "$scratch"; mkdir -p "$scratch"; rm -f score.json
             echo "=== baseline seed=$seed ===" | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
-            FLOCK_DIAG_SEED="$seed" /usr/bin/time -v "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
+            FLOCK_ZC_TIMING=1 FLOCK_DIAG_SEED="$seed" /usr/bin/time -v "$HARNESS" "$BASE" "$scratch" "$PWD/score.json" \
               "$PWD/benchmark-results/ab/baseline-$seed.md" 18 "$threads" 0 1 \
               2>&1 | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
             python3 - "$seed" "$GITHUB_WORKSPACE/snark-ab.tsv" <<'PY'
@@ -310,6 +310,11 @@ jobs:
               f.write("No candidate measured. These are process-level measurements, not prover phase attribution.\n")
           print(open(sys.argv[2]).read())
           PY
+          echo "=== ZEROCHECK PHASE TIMINGS (diagnostic only) ===" | tee "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"
+          grep -F '[zc-timing]' "$GITHUB_WORKSPACE/snark-ab.log" | tee -a "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt" || true
+          if ! grep -Fq '[zc-timing]' "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"; then
+            echo "::notice::No Zerocheck phase timings emitted by baseline worker; diagnostic unavailable."
+          fi
           echo "PROFILE_ONLY_COMPLETE: 6 verified baseline trials; no candidate measured; Yukon submission disabled." | tee -a "$GITHUB_WORKSPACE/snark-ab.log"
       - name: Capture Zerocheck diagnostic source and CPU dispatch
         working-directory: ${{ env.SNARK_ROOT }}
@@ -366,6 +371,7 @@ jobs:
             snark-ab.tsv
             snark-baseline-profile-summary.txt
             snark-timing-hooks.txt
+            snark-zc-phase-timings.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
