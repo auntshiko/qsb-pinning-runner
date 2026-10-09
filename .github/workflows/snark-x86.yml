@@ -17,7 +17,7 @@ permissions:
 jobs:
   source-analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
     env:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
     steps:
@@ -78,6 +78,32 @@ jobs:
           test -s "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
           echo "CANDIDATE_PREPARED_ONLY: use rayon::join for AB/C round-one scheduling; no correctness or performance claim." > "$GITHUB_WORKSPACE/snark-candidate-status.txt"
           git checkout -- crates/flock-core/src/zerocheck.rs
+      - name: Compile isolated candidate without running proofs
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          status="$GITHUB_WORKSPACE/snark-candidate-compile-status.txt"
+          echo "CANDIDATE_COMPILE_STARTED; no proof or performance claims" > "$status"
+          ./setup.sh
+          git apply --check "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
+          git apply "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch"
+          trap 'git apply -R "$GITHUB_WORKSPACE/snark-round1-scheduling-candidate.patch" || true' EXIT
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --manifest-path Cargo.toml --target-dir target/round1-scheduling-candidate \
+            -p flock-benchmark-worker
+          candidate="$PWD/target/round1-scheduling-candidate/challenge/flock-benchmark-worker"
+          test -x "$candidate"
+          sha256sum "$candidate" >> "$status"
+          echo "CANDIDATE_COMPILE_PASS; proof verification and speed untested" >> "$status"
+      - name: Upload candidate compile status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-round1-compile-status
+          path: snark-candidate-compile-status.txt
+          if-no-files-found: warn
       - name: Upload isolated candidate patch
         if: always()
         uses: actions/upload-artifact@v4
