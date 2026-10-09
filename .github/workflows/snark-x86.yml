@@ -7,6 +7,11 @@ on:
         required: true
         default: true
         type: boolean
+      paired_ab:
+        description: "Run six-seed paired trusted A/B test of round-one scheduling candidate"
+        required: true
+        default: false
+        type: boolean
       submit:
         description: "Submit candidate to Yukon after benchmark gate passes"
         required: true
@@ -166,6 +171,143 @@ jobs:
           path: snark-source-analysis.txt
           if-no-files-found: warn
 
+  paired-ab:
+    if: ${{ inputs.paired_ab }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Yukon CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL https://api.yukon.org/yukon/install.sh -o /tmp/yukon-install.sh
+          sh /tmp/yukon-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Clone and build trusted baseline
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          cd "$GITHUB_WORKSPACE/work"
+          yukon clone eigenlabs/flock-challenge-multi/x86
+          ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+          cd "$ROOT"
+          ./setup.sh
+      - name: Verify host and build candidate
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          model="$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+          echo "HOST_MODEL=$model"
+          if [[ "$model" == *"EPYC 7763"* || "$model" == *"EPYC 9V74"* ]]; then
+            echo "::notice::HOST_QUARANTINED: $model; no performance result."
+            exit 86
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("crates/flock-core/src/zerocheck.rs")
+          s=p.read_text()
+          pattern=r'match\s+crate::smt_split::zc_r1_pools\(\)\s*\{.*?None\s*=>\s*rayon::join\(ab_closure,\s*c_closure\),?\s*\}'
+          matches=list(re.finditer(pattern,s,re.S))
+          if len(matches)!=1: raise SystemExit(f"expected one scheduling block, got {len(matches)}")
+          p.write_text(s[:matches[0].start()]+'rayon::join(ab_closure, c_closure)'+s[matches[0].end():])
+          PY
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --target-dir target/round1-ab-candidate -p flock-benchmark-worker
+          git checkout -- crates/flock-core/src/zerocheck.rs
+          test -x target/round1-ab-candidate/challenge/flock-benchmark-worker
+          test -x target/challenge-candidate/challenge/flock-benchmark-worker
+      - name: Run six paired verified trials
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          cp benchmark-tools/harness/src/main.rs /tmp/round1-ab-harness.rs
+          trap 'cp /tmp/round1-ab-harness.rs benchmark-tools/harness/src/main.rs' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("benchmark-tools/harness/src/main.rs")
+          s=p.read_text()
+          old='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          new='''fn fresh_seed() -> Result<u64, Box<dyn std::error::Error>> {
+              if let Ok(v) = std::env::var("FLOCK_DIAG_SEED") {
+                  let seed: u64 = v.parse()?;
+                  eprintln!("HARNESS_EFFECTIVE_SEED={seed}");
+                  return Ok(seed);
+              }
+              let mut bytes = [0u8; 8];
+              File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+              Ok(u64::from_le_bytes(bytes))
+          }'''
+          if s.count(old)!=1: raise SystemExit("seed harness source mismatch")
+          p.write_text(s.replace(old,new,1))
+          PY
+          . "${CARGO_HOME:-$HOME/.cargo}/env"
+          CARGO_INCREMENTAL=0 CARGO_NET_OFFLINE=true RUSTFLAGS="-C target-cpu=native" \
+            cargo +1.97.0 build --locked --offline --profile challenge \
+            --target-dir target/round1-ab-harness -p flock-benchmark-harness
+          HARNESS="$PWD/target/round1-ab-harness/challenge/flock_benchmark_harness"
+          BASE="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+          CAND="$PWD/target/round1-ab-candidate/challenge/flock-benchmark-worker"
+          mkdir -p benchmark-results/round1-ab
+          : > "$GITHUB_WORKSPACE/snark-round1-ab.tsv"
+          for seed in 0 1 54324593501110620 9223372036854775807 9223372036854775808 18446744073709551615; do
+            for variant in baseline candidate; do
+              if [[ "$variant" == baseline ]]; then worker="$BASE"; else worker="$CAND"; fi
+              scratch="$PWD/benchmark-results/round1-ab/$variant-$seed"
+              mkdir -p "$scratch"
+              rm -f score.json
+              FLOCK_DIAG_SEED="$seed" "$HARNESS" "$worker" "$scratch" "$PWD/score.json" \
+                "$PWD/benchmark-results/round1-ab/$variant-$seed.md" 18 1 0 1 \
+                > "$GITHUB_WORKSPACE/snark-round1-$variant-$seed.log" 2>&1
+              python3 - "$variant" "$seed" "$GITHUB_WORKSPACE/snark-round1-ab.tsv" <<'PY'
+          import json,sys
+          variant,seed,path=sys.argv[1:]
+          d=json.load(open("score.json"))
+          score=d.get("score")
+          assert isinstance(score,(int,float)) and score>0, "trusted verification score missing"
+          with open(path,"a") as f:f.write(f"{variant}\t{seed}\t{score}\n")
+          PY
+            done
+          done
+          python3 - <<'PY'
+          import csv,statistics
+          rows=list(csv.reader(open("/dev/null")))
+          import os
+          path=os.environ["GITHUB_WORKSPACE"]+"/snark-round1-ab.tsv"
+          scores={}
+          for variant,seed,score in csv.reader(open(path),delimiter="\t"):
+              scores[(variant,seed)]=float(score)
+          seeds=[s for (v,s) in scores if v=="baseline"]
+          assert len(seeds)==6 and len(scores)==12
+          gains=[100*(scores[("candidate",s)]/scores[("baseline",s)]-1) for s in seeds]
+          wins=sum(g>0 for g in gains)
+          median=statistics.median(gains)
+          result=f"paired_seeds=6 verified_trials=12 wins={wins}/6 median_paired_gain_pct={median:.4f}\n"
+          result+=f"ACCEPTED={median>=2 and wins>=5}\n"
+          open(os.environ["GITHUB_WORKSPACE"]+"/snark-round1-ab-summary.txt","w").write(result)
+          print(result)
+          PY
+      - name: Upload paired benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-round1-paired-ab
+          path: |
+            snark-round1-ab.tsv
+            snark-round1-ab-summary.txt
+            snark-round1-*.log
+          if-no-files-found: warn
   snark-submit:
     if: ${{ !inputs.analysis_only }}
     runs-on: ubuntu-latest
