@@ -22,6 +22,16 @@ on:
         required: true
         default: false
         type: boolean
+      paired_runner:
+        description: "Runner for paired benchmark (self-hosted requires your configured runner)"
+        required: true
+        default: ubuntu-22.04
+        type: choice
+        options:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-latest
+          - self-hosted
       submit:
         description: "Submit candidate to Yukon after benchmark gate passes"
         required: true
@@ -309,7 +319,7 @@ jobs:
 
   paired-ab:
     if: ${{ inputs.paired_ab }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.paired_runner || 'ubuntu-22.04' }}
     timeout-minutes: 55
     env:
       YUKON_API_TOKEN: ${{ secrets.YUKON_API_TOKEN }}
