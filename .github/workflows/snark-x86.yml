@@ -109,6 +109,26 @@ jobs:
             echo "=== Timing environment on diagnostic step ==="
             echo "FLOCK_ZC_TIMING=${FLOCK_ZC_TIMING:-unset}; benchmark sets it per harness invocation"
           } > "$out"
+      - name: Capture reproducibility fingerprints before proof gate
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/snark-repro-fingerprint.txt"
+          {
+            echo "=== CPU and microcode ==="
+            lscpu | grep -E 'Model name|Architecture|Flags|Hypervisor vendor|Virtualization' || true
+            grep -m1 -E '^microcode|^cpu family|^model[[:space:]]|^stepping' /proc/cpuinfo || true
+            echo "=== Toolchain ==="
+            rustc +1.97.0 -Vv || true
+            echo "=== Source revision ==="
+            git rev-parse HEAD || true
+            echo "=== Worker binary and setup outputs ==="
+            find target -type f -name 'flock-benchmark-worker' -print -exec sha256sum {} \; || true
+            echo "=== Build feature controls ==="
+            printenv | grep -E '^(RUSTFLAGS|CARGO_BUILD_TARGET|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN|FLOCK_)=' || true
+            echo "=== Host and kernel ==="
+            uname -a
+          } > "$out"
       - name: Record x86 host class
         run: |
           set -euo pipefail
@@ -448,6 +468,7 @@ jobs:
             snark-zc-phase-timings.txt
             snark-zc-timing-audit.txt
             snark-worker-env-audit.txt
+            snark-repro-fingerprint.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
