@@ -338,9 +338,9 @@ jobs:
           if os.environ.get("KERNEL_REDUCE_CANDIDATE")=="true":
               p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized.rs")
               s=p.read_text()
-              start=s.index("pub fn round1_shift_reduce_ab_packed_padded_with_precomputed(")
-              end=s.index("\\n}",start)+2
-              block=s[start:end]
+              # Match the reduction directly: function names may change upstream.
+              # Require exactly one occurrence to avoid patching unrelated code.
+              block=s
               old='''.map(|s| s.local_res_ab)
             .reduce(
             || [F128::ZERO; ELL],
@@ -359,8 +359,8 @@ jobs:
             ab1
             })
             .unwrap_or([F128::ZERO; ELL]);'''
-              if block.count(old)!=1: raise SystemExit("packed AB reduction anchor mismatch")
-              p.write_text(s[:start]+block.replace(old,new,1)+s[end:])
+              if block.count(old)!=1: raise SystemExit(f"packed AB reduction anchor mismatch: found {block.count(old)} occurrences")
+              p.write_text(s.replace(old,new,1))
               print("KERNEL_REDUCE_CANDIDATE_APPLIED")
           else:
               p=Path("crates/flock-core/src/zerocheck.rs")
