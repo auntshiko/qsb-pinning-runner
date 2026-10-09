@@ -65,7 +65,12 @@ jobs:
             rg -n -C 15 --fixed-strings '[zc-timing]' crates/ benchmark-tools/ || true
             rg -n -C 3 'FLOCK_ZC_TIMING|cfg\\(debug_assertions\\)|cfg\\(feature' crates/ benchmark-tools/ || true
             echo "=== Worker embedded timing marker context ==="
-            strings target/challenge-candidate/challenge/flock-benchmark-worker | grep -i -E -m 20 'zc-timing|FLOCK_.*TIM|timing' || true
+            base="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+            if [[ -f "$base" ]]; then
+              strings "$base" | grep -i -E -m 20 'zc-timing|FLOCK_.*TIM|timing' || true
+            else
+              echo "WORKER_NOT_BUILT_AT_AUDIT_TIME"
+            fi
             echo "=== Trusted baseline worker ==="
             base="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
             if [[ -f "$base" ]]; then
