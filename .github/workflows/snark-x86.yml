@@ -361,6 +361,19 @@ jobs:
               echo "TIMING_MARKER_EMBEDDED=no"
             fi
           } >> "$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
+          echo "=== HARNESS-TO-WORKER ENVIRONMENT PROPAGATION ===" > "$GITHUB_WORKSPACE/snark-worker-env-audit.txt"
+          {
+            echo "=== Worker spawn source ==="
+            rg -n -C 8 'Command::new|env_clear\\(|\\.env\\(|Stdio::|spawn\\(' benchmark-tools/harness/src || true
+            echo "=== Timing variable source references ==="
+            rg -n -C 5 'FLOCK_ZC_TIMING|zc-timing' crates/ benchmark-tools/ || true
+            echo "=== Runner environment variable value ==="
+            if [[ "${FLOCK_ZC_TIMING:-}" == "1" ]]; then
+              echo "PARENT_TIMING_FLAG=1"
+            else
+              echo "PARENT_TIMING_FLAG=not_set_at_step_scope; set per harness invocation"
+            fi
+          } >> "$GITHUB_WORKSPACE/snark-worker-env-audit.txt"
           echo "=== ZEROCHECK PHASE TIMINGS (diagnostic only) ===" | tee "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"
           grep -F '[zc-timing]' "$GITHUB_WORKSPACE/snark-ab.log" | tee -a "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt" || true
           if ! grep -Fq '[zc-timing]' "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"; then
@@ -424,6 +437,7 @@ jobs:
             snark-timing-hooks.txt
             snark-zc-phase-timings.txt
             snark-zc-timing-audit.txt
+            snark-worker-env-audit.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
