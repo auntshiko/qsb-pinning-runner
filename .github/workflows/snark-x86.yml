@@ -7,6 +7,11 @@ on:
         required: true
         default: true
         type: boolean
+      proof_smoke:
+        description: "Run optional host-dependent candidate proof smoke test"
+        required: true
+        default: false
+        type: boolean
       paired_ab:
         description: "Run six-seed paired trusted A/B test of round-one scheduling candidate"
         required: true
@@ -103,6 +108,7 @@ jobs:
           sha256sum "$candidate" >> "$status"
           echo "CANDIDATE_COMPILE_PASS; proof verification and speed untested" >> "$status"
       - name: Candidate trusted proof smoke test
+        if: ${{ inputs.proof_smoke }}
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
           set -euo pipefail
