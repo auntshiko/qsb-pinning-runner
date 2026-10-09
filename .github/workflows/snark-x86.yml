@@ -54,6 +54,31 @@ jobs:
           set -euo pipefail
           ./setup.sh
 
+      - name: Audit trusted worker timing support before CPU gate
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
+          {
+            echo "TIMING_AUDIT_BEFORE_CPU_GATE; no proof or candidate measured"
+            echo "=== Zerocheck timing source and guards ==="
+            rg -n -C 15 --fixed-strings '[zc-timing]' crates/ || true
+            rg -n -C 3 'FLOCK_ZC_TIMING|cfg\\(debug_assertions\\)|cfg\\(feature' crates/flock-core/src crates/flock-prover/src || true
+            echo "=== Trusted baseline worker ==="
+            base="$PWD/target/challenge-candidate/challenge/flock-benchmark-worker"
+            if [[ -f "$base" ]]; then
+              sha256sum "$base"
+              if grep -aFq '[zc-timing]' "$base"; then
+                echo "TIMING_MARKER_EMBEDDED=yes"
+              else
+                echo "TIMING_MARKER_EMBEDDED=no"
+              fi
+            else
+              echo "TIMING_MARKER_EMBEDDED=unknown; worker not yet built"
+            fi
+          } > "$out"
+          echo "Timing audit recorded independently of trusted-proof host gate."
+          
       - name: Record x86 host class
         run: |
           set -euo pipefail
@@ -313,7 +338,7 @@ jobs:
           # The trusted BASE is a prebuilt worker; its timing code may be
           # compiled out. Preserve it unchanged and record the reason before
           # attempting further baseline-only profiling.
-          echo "=== ZEROCHECK TIMING ACTIVATION AUDIT ===" > "$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
+          echo "=== POST-BENCHMARK ZEROCHECK TIMING ACTIVATION AUDIT ===" >> "$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
           {
             echo "=== source context ==="
             rg -n -C 22 --fixed-strings '[zc-timing]' crates/ || true
