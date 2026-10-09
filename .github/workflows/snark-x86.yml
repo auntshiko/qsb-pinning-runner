@@ -2,6 +2,11 @@ name: SNARK.fast x86 candidate benchmark
 on:
   workflow_dispatch:
     inputs:
+      analysis_only:
+        description: "Run source analysis without costly proof benchmark"
+        required: true
+        default: true
+        type: boolean
       submit:
         description: "Submit candidate to Yukon after benchmark gate passes"
         required: true
@@ -46,6 +51,10 @@ jobs:
             grep -nE -C 15 'zc-timing|FLOCK_ZC_TIMING|identity.C|fold|round1' crates/flock-core/src/zerocheck.rs | head -n 300 || true
             echo "=== Worker process invocation ==="
             grep -nE -C 8 'Command|spawn|env|stdout|stderr|wait|output' benchmark-tools/harness/src/main.rs benchmark-tools/worker/src/main.rs | head -n 220 || true
+            echo "=== Worker isolation: environment and output suppression ==="
+            sed -n '148,170p' benchmark-tools/harness/src/main.rs
+            echo "=== Zerocheck prover timing guards and surrounding loops ==="
+            sed -n '450,850p' crates/flock-core/src/zerocheck.rs
             echo "=== Optimization candidates are NOT enabled ==="
           } > "$out"
       - name: Upload independent source analysis
@@ -57,6 +66,7 @@ jobs:
           if-no-files-found: warn
 
   snark-submit:
+    if: ${{ !inputs.analysis_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
