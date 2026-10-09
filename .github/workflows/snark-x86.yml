@@ -361,29 +361,24 @@ jobs:
           if os.environ.get("KERNEL_REDUCE_CANDIDATE")=="true":
               p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized.rs")
               s=p.read_text()
-              # Exact source captured from successful run #141, lines 4082-4091.
-              old='''.map(|s| s.local_res_ab)
-              .reduce(
-                  || [F128::ZERO; ELL],
-                  |mut ab1, ab2| {
-                for i in 0..ELL {
-                    ab1[i] += ab2[i];
-                }
-                ab1
-                  },
-              );'''
-              new='''.map(|s| s.local_res_ab)
-              .reduce_with(|mut ab1, ab2| {
-                  for i in 0..ELL {
-                ab1[i] += ab2[i];
-                  }
-                  ab1
-              })
-              .unwrap_or([F128::ZERO; ELL]);'''
-              count=s.count(old)
-              if count!=1:
-                  raise SystemExit(f"packed AB reduction source mismatch: expected exactly one match, got {count}")
-              p.write_text(s.replace(old,new,1))
+              # Whitespace-tolerant match against the captured source structure.
+              pattern=(r'\\.map\\(\\|s\\| s\\.local_res_ab\\)\\s*'
+                       r'\\.reduce\\(\\s*\\|\\| \\[F128::ZERO; ELL\\],\\s*'
+                       r'\\|mut ab1, ab2\\| \\{\\s*for i in 0\\.\\.ELL \\{\\s*'
+                       r'ab1\\[i\\] \\+= ab2\\[i\\];\\s*\\}\\s*ab1\\s*\\},\\s*\\);')
+              matches=list(re.finditer(pattern,s))
+              if len(matches)!=1:
+                  raise SystemExit(f"packed AB reduction source mismatch: expected one match, got {len(matches)}")
+              new=(""".map(|s| s.local_res_ab)
+                  .reduce_with(|mut ab1, ab2| {
+                      for i in 0..ELL {
+                          ab1[i] += ab2[i];
+                      }
+                      ab1
+                  })
+                  .unwrap_or([F128::ZERO; ELL]);""")
+              s=s[:matches[0].start()]+new+s[matches[0].end():]
+              p.write_text(s)
               print("KERNEL_REDUCE_CANDIDATE_APPLIED")
           else:
               p=Path("crates/flock-core/src/zerocheck.rs")
