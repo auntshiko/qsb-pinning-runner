@@ -359,7 +359,17 @@ jobs:
             ab1
             })
             .unwrap_or([F128::ZERO; ELL]);'''
-              if block.count(old)!=1: raise SystemExit(f"packed AB reduction anchor mismatch: found {block.count(old)} occurrences")
+              if block.count(old)!=1:
+                  import difflib
+                  lines=s.splitlines()
+                  hits=[i for i,line in enumerate(lines) if "local_res_ab" in line or ".reduce(" in line or ".reduce_with(" in line]
+                  print(f"PACKED_AB_SOURCE_MISMATCH: expected 1 exact match, found {block.count(old)}",flush=True)
+                  print(f"PACKED_AB_SOURCE_HITS={len(hits)}",flush=True)
+                  for i in hits[:24]:
+                      lo=max(0,i-5); hi=min(len(lines),i+15)
+                      print(f"PACKED_AB_SOURCE_CONTEXT lines {lo+1}-{hi}:",flush=True)
+                      for k in range(lo,hi): print(f"{k+1}: {lines[k]}",flush=True)
+                  raise SystemExit("candidate patch not applied; source context above required before modifying")
               p.write_text(s.replace(old,new,1))
               print("KERNEL_REDUCE_CANDIDATE_APPLIED")
           else:
