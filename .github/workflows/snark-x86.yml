@@ -53,6 +53,29 @@ jobs:
           ROOT="$(find "$GITHUB_WORKSPACE/work" -type f -name benchmark.json -print -quit | xargs -r dirname)"
           test -n "$ROOT"
           echo "SNARK_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Capture exact packed AB reduction source
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("crates/flock-core/src/zerocheck/univariate_skip_optimized.rs")
+          lines=p.read_text().splitlines()
+          hits=[i for i,line in enumerate(lines) if "local_res_ab" in line or ".reduce(" in line or ".reduce_with(" in line]
+          with open(__import__("os").environ["GITHUB_WORKSPACE"]+"/snark-packed-ab-reduction-source.txt","w") as f:
+              f.write(f"source={p} total_lines={len(lines)} matches={len(hits)}\\n")
+              for i in hits[:35]:
+                  lo=max(0,i-8); hi=min(len(lines),i+20)
+                  f.write(f"\\n--- lines {lo+1}-{hi} ---\\n")
+                  for k in range(lo,hi): f.write(f"{k+1}: {lines[k]}\\n")
+          PY
+      - name: Upload packed AB reduction source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-packed-ab-reduction-source
+          path: snark-packed-ab-reduction-source.txt
+          if-no-files-found: warn
       - name: Inspect candidate hot paths without running proofs
         working-directory: ${{ env.SNARK_ROOT }}
         run: |
