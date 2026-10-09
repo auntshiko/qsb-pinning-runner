@@ -169,6 +169,41 @@ jobs:
             snark-round1-scheduling-candidate.patch
             snark-candidate-status.txt
           if-no-files-found: warn
+      - name: Capture inner-loop optimization evidence
+        working-directory: ${{ env.SNARK_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("crates/flock-core/src/zerocheck.rs")
+          src=p.read_text().splitlines()
+          out=Path(__import__("os").environ["GITHUB_WORKSPACE"])/"snark-inner-loop-analysis.txt"
+          patterns={
+            "round-one AB / C":r"ab_closure|c_closure|round1|round_1",
+            "field arithmetic":r"mul_assign|add_assign|\*=|\+=|mul_add|square\(",
+            "allocations / copies":r"collect\(|to_vec\(|Vec::|with_capacity|clone\(|copy_from_slice|reserve\(",
+            "parallel scheduling":r"par_iter|rayon|smt_split|join\(",
+          }
+          with out.open("w") as f:
+            f.write("SOURCE_ONLY; prior direct rayon::join candidate REJECTED (-0.7513% median, 3/6 wins).\n")
+            f.write("No candidate modification, proof execution, or performance claim.\n")
+            for label,pattern in patterns.items():
+              matches=[i for i,line in enumerate(src) if re.search(pattern,line)]
+              f.write(f"\n=== {label}: {len(matches)} matching lines ===\n")
+              for i in matches[:65]:
+                lo=max(0,i-7);hi=min(len(src),i+9)
+                f.write(f"--- lines {lo+1}-{hi} ---\n")
+                for j in range(lo,hi):
+                  f.write(f"{j+1:5d} {src[j]}\n")
+          PY
+      - name: Upload inner-loop evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snark-x86-inner-loop-analysis
+          path: snark-inner-loop-analysis.txt
+          if-no-files-found: warn
       - name: Upload independent source analysis
         if: always()
         uses: actions/upload-artifact@v4
