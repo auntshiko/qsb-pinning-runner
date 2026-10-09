@@ -310,6 +310,25 @@ jobs:
               f.write("No candidate measured. These are process-level measurements, not prover phase attribution.\n")
           print(open(sys.argv[2]).read())
           PY
+          # The trusted BASE is a prebuilt worker; its timing code may be
+          # compiled out. Preserve it unchanged and record the reason before
+          # attempting further baseline-only profiling.
+          echo "=== ZEROCHECK TIMING ACTIVATION AUDIT ===" > "$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
+          {
+            echo "=== source context ==="
+            rg -n -C 22 --fixed-strings '[zc-timing]' crates/ || true
+            echo "=== source gating ==="
+            rg -n -C 4 'FLOCK_ZC_TIMING|cfg\\(debug_assertions\\)|cfg\\(feature|zc.timing' crates/flock-core/src crates/flock-prover/src || true
+            echo "=== baseline worker identity ==="
+            sha256sum "$BASE"
+            file "$BASE"
+            echo "=== embedded timing marker ==="
+            if grep -aFq '[zc-timing]' "$BASE"; then
+              echo "TIMING_MARKER_EMBEDDED=yes"
+            else
+              echo "TIMING_MARKER_EMBEDDED=no"
+            fi
+          } >> "$GITHUB_WORKSPACE/snark-zc-timing-audit.txt"
           echo "=== ZEROCHECK PHASE TIMINGS (diagnostic only) ===" | tee "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"
           grep -F '[zc-timing]' "$GITHUB_WORKSPACE/snark-ab.log" | tee -a "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt" || true
           if ! grep -Fq '[zc-timing]' "$GITHUB_WORKSPACE/snark-zc-phase-timings.txt"; then
@@ -372,6 +391,7 @@ jobs:
             snark-baseline-profile-summary.txt
             snark-timing-hooks.txt
             snark-zc-phase-timings.txt
+            snark-zc-timing-audit.txt
             snark-runner-env.txt
             snark-proof-source-inspection.txt
             snark-baseline-build-audit.txt
